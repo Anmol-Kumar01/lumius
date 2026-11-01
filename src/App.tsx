@@ -232,10 +232,13 @@ export default function App() {
       setNow(new Date());
     }, 1500);
     const slow = setInterval(stat, 3000);
+    // The browser demo announces playback changes so the island updates at once.
+    window.addEventListener("lumius-status", stat);
     return () => {
       alive = false;
       clearInterval(timer);
       clearInterval(slow);
+      window.removeEventListener("lumius-status", stat);
     };
   }, []);
   const change = async (s: Settings) => {
@@ -283,6 +286,11 @@ export default function App() {
           {
             "--glass-alpha": `${0.3 + settings.glass * 0.004}`,
             "--blur": `${12 + settings.glass * 0.35}px`,
+            // The browser demo has no backlight, so brightness dims the page.
+            filter:
+              !native && status?.brightness != null
+                ? `brightness(${0.35 + status.brightness * 0.0065})`
+                : undefined,
           } as CSSProperties
         }
       >
@@ -326,7 +334,7 @@ export default function App() {
             </div>
             {!native && (
               <div className="preview-label">
-                Design preview · native Linux build required for system actions
+                Demo mode · sample files only, nothing on this computer changes
               </div>
             )}
           </>
@@ -454,6 +462,7 @@ function Files({
       entry: Entry;
       text?: string;
       truncated?: boolean;
+      url?: string;
     } | null>(null),
     [modal, setModal] = useState<{
       type: "mkdir" | "rename" | "trash";
@@ -538,19 +547,24 @@ function Files({
     }
   };
   const open = (e: Entry) =>
-    e.directory ? navigate(e.path) : execute("open", { path: e.path });
+    e.directory
+      ? navigate(e.path)
+      : !native && e.kind !== "Audio"
+        ? showPreview(e)
+        : execute("open", { path: e.path });
   const showPreview = async (e: Entry) => {
     if (e.directory) {
       navigate(e.path);
       return;
     }
     setPreview({ entry: e });
-    if (e.kind !== "Image")
+    if (e.kind !== "Image" || !native)
       try {
-        const result = await call<{ text: string; truncated: boolean }>(
-          "preview",
-          { path: e.path },
-        );
+        const result = await call<{
+          text: string;
+          truncated: boolean;
+          url?: string;
+        }>("preview", { path: e.path });
         setPreview({ entry: e, ...result });
       } catch (err) {
         setError(String(err));
@@ -683,7 +697,7 @@ function Files({
           <span className="system-storage">
             {native
               ? "Connected to local filesystem"
-              : "Browser design preview"}
+              : "Browser demo · sample files"}
           </span>
         </div>
       </aside>
@@ -1028,7 +1042,9 @@ function Files({
         </div>
         <div className="selection-bar">
           <span>
-            {selected ? selected.name : `${entries.length} items`}{" "}
+            {selected
+              ? selected.name
+              : `${entries.length} ${entries.length === 1 ? "item" : "items"}`}{" "}
             {clipboard && (
               <small>
                 {" "}
@@ -1184,15 +1200,19 @@ function Files({
                 alt={preview.entry.name}
                 src={convertFileSrc(preview.entry.path)}
               />
+            ) : preview.url ? (
+              <img alt={preview.entry.name} src={preview.url} />
             ) : (
               <pre>
                 {preview.text || "Loading preview…"}
                 {preview.truncated ? "\n… Preview limited to 64 KiB." : ""}
               </pre>
             )}
-            <button className="primary" onClick={() => open(preview.entry)}>
-              Open in application
-            </button>
+            {(native || preview.entry.kind === "Audio") && (
+              <button className="primary" onClick={() => open(preview.entry)}>
+                Open in application
+              </button>
+            )}
           </section>
         </div>
       )}
@@ -1251,7 +1271,9 @@ function Island({
             <small>
               {active
                 ? `${Math.round((active.done / Math.max(1, active.total)) * 100)}%`
-                : "a space for everything"}
+                : status?.playing
+                  ? status.artist
+                  : "a space for everything"}
             </small>
           </span>
           <span className={"wave " + (status?.playing ? "playing" : "")}>
@@ -1673,7 +1695,7 @@ function SettingsPanel(env: Environment) {
               <dd>
                 {native
                   ? status?.platform || "Native"
-                  : "Browser design preview"}
+                  : "Browser demo · sample files"}
               </dd>
               <dt>License</dt>
               <dd>GPL-3.0-only · upstream licenses retained</dd>

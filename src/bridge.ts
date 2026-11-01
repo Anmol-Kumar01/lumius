@@ -15,28 +15,157 @@ export const defaults: Settings = {
   wallpaper: "aurora",
   pinned: ["files", "browser", "music", "terminal", "settings"],
 };
-// Browser mode is an explicitly labelled design preview. It never impersonates a native filesystem.
-const previewNames = [
-  "Desktop",
-  "Documents",
-  "Downloads",
-  "Music",
-  "Pictures",
-  "Videos",
-];
-const previewFiles: Entry[] = previewNames.map((name) => ({
-  name,
-  path: "/preview/" + name,
-  directory: true,
-  size: 0,
-  modified: 0,
-  kind: "Folder",
-}));
-export async function call<T>(
+
+// Browser mode is a clearly labelled demo. It works on an in-memory set of
+// sample files and never reads or changes anything on the visitor's computer.
+export const demoHome = "/home/demo";
+type DemoNode = Entry & { text?: string; url?: string; zip?: string[] };
+const fs = new Map<string, DemoNode>();
+const trash: (TrashItem & { nodes: DemoNode[] })[] = [];
+const jobs: Transfer[] = [];
+const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
+const nameOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+const kindOf = (name: string) => {
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  if (["png", "jpg", "jpeg", "webp", "svg"].includes(ext)) return "Image";
+  if (["mp3", "ogg", "flac", "wav"].includes(ext)) return "Audio";
+  if (ext === "zip") return "Archive";
+  if (["txt", "md", "json", "log"].includes(ext)) return "Document";
+  return "File";
+};
+const stamp = () => Math.floor(Date.now() / 1000);
+function put(path: string, extra: Partial<DemoNode> = {}, directory = false) {
+  const name = nameOf(path);
+  fs.set(path, {
+    name,
+    path,
+    directory,
+    size: extra.text ? new Blob([extra.text]).size : (extra.size ?? 0),
+    modified: extra.modified ?? stamp() - Math.floor(Math.random() * 400000),
+    kind: directory ? "Folder" : kindOf(name),
+    ...extra,
+  });
+}
+const dir = (path: string) => put(path, {}, true);
+function seed() {
+  dir("/");
+  dir("/home");
+  dir(demoHome);
+  for (const d of [
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Music",
+    "Pictures",
+    "Videos",
+  ])
+    dir(`${demoHome}/${d}`);
+  put(`${demoHome}/Desktop/Hackathon pitch.txt`, {
+    text: "Lumius — a calm, glass desktop built on Debian.\n\n1. Problem\n2. Demo\n3. Plan\n",
+  });
+  put(`${demoHome}/Documents/Welcome to Lumius.txt`, {
+    text: "Welcome to Lumius.\n\nThis is the browser demo: create folders, rename, copy, paste, move to Trash and restore. Play the track in Music and control it from the island.\n\nInstall the Lumius ISO to use your own files.",
+  });
+  put(`${demoHome}/Documents/Project plan.md`, {
+    text: "# Lumius roadmap\n\n- Glass shell, Files, Settings\n- Dynamic Island with music and transfers\n- Installer and first public release\n",
+  });
+  dir(`${demoHome}/Documents/Notes`);
+  put(`${demoHome}/Documents/Notes/Ideas.txt`, {
+    text: "Island widgets, quick notes, focus timer.",
+  });
+  put(`${demoHome}/Downloads/Wallpapers.zip`, {
+    size: 4096,
+    zip: ["aurora.svg", "dusk.svg", "ocean.svg"],
+  });
+  put(`${demoHome}/Music/Lumius Aurora.wav`, {
+    size: 529244,
+    url: "/demo/Lumius-Aurora.wav",
+  });
+  for (const w of ["aurora", "dusk", "ocean"])
+    put(`${demoHome}/Pictures/${w[0].toUpperCase() + w.slice(1)}.svg`, {
+      size: 900,
+      url: `/demo/${w}.svg`,
+    });
+}
+seed();
+
+function need(path: string) {
+  const node = fs.get(path);
+  if (!node) throw new Error(`“${nameOf(path)}” no longer exists.`);
+  return node;
+}
+function checkName(name: string) {
+  const n = name.trim();
+  if (!n || n === "." || n === ".." || n.includes("/"))
+    throw new Error("Use a name without slashes.");
+  return n;
+}
+const children = (path: string) =>
+  [...fs.values()].filter((n) => n.path !== "/" && parentOf(n.path) === path);
+const subtree = (path: string) =>
+  [...fs.values()].filter(
+    (n) => n.path === path || n.path.startsWith(path + "/"),
+  );
+function freeName(folder: string, name: string) {
+  if (!fs.has(`${folder}/${name}`)) return name;
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] =
+    dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let i = 2; ; i++) {
+    const candidate = `${stem} ${i}${ext}`;
+    if (!fs.has(`${folder}/${candidate}`)) return candidate;
+  }
+}
+function relocate(from: string, to: string, keep: boolean) {
+  const nodes = subtree(from);
+  if (!keep) nodes.forEach((n) => fs.delete(n.path));
+  for (const n of nodes) {
+    const path = to + n.path.slice(from.length);
+    fs.set(path, { ...n, path, name: nameOf(path), modified: stamp() });
+  }
+}
+
+// Music: the bundled sample track plays through the browser.
+let audio: HTMLAudioElement | null = null;
+let track: DemoNode | null = null;
+let volume = 70;
+let brightness = 100;
+function play(node: DemoNode) {
+  if (!audio) {
+    audio = new Audio();
+    for (const event of ["play", "pause", "ended"])
+      audio.addEventListener(event, () =>
+        window.dispatchEvent(new Event("lumius-status")),
+      );
+  }
+  if (track?.path !== node.path) {
+    track = node;
+    audio.src = node.url!;
+  }
+  audio.volume = volume / 100;
+  return audio.play();
+}
+function firstTrack() {
+  return [...fs.values()].find((n) => n.kind === "Audio" && n.url) || null;
+}
+
+const appLabels: Record<string, string> = {
+  terminal: "Terminal",
+  store: "Software",
+  launcher: "App search",
+  power: "Power options",
+  lock: "Lock screen",
+  network: "Wi-Fi settings",
+  bluetooth: "Bluetooth settings",
+  display: "Display settings",
+  installer: "The installer",
+};
+
+async function demo(
   command: string,
-  args: Record<string, unknown> = {},
-): Promise<T> {
-  if (native) return invoke<T>("rpc", { command, args });
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const s = (key: string) => String(args[key] ?? "");
   switch (command) {
     case "settings_get":
       return JSON.parse(
@@ -44,34 +173,220 @@ export async function call<T>(
       );
     case "settings_set":
       localStorage.setItem("lumius-preview", JSON.stringify(args.settings));
-      return args.settings as T;
+      return args.settings;
     case "home":
-      return "/preview" as T;
-    case "list":
+      return demoHome;
+    case "mounts":
+      return [];
+    case "list": {
+      const path = s("path") || demoHome;
+      if (!need(path).directory) throw new Error("That is not a folder.");
+      return { path, entries: children(path) } satisfies Listing;
+    }
+    case "mkdir": {
+      const name = checkName(s("name"));
+      const path = `${s("path")}/${name}`;
+      if (fs.has(path))
+        throw new Error(`An item named “${name}” already exists here.`);
+      dir(path);
+      fs.get(path)!.modified = stamp();
+      return null;
+    }
+    case "rename": {
+      const from = s("path");
+      need(from);
+      const name = checkName(s("name"));
+      const to = `${parentOf(from)}/${name}`;
+      if (to === from) return null;
+      if (fs.has(to))
+        throw new Error(`An item named “${name}” already exists here.`);
+      relocate(from, to, false);
+      return null;
+    }
+    case "transfer": {
+      const source = s("source");
+      const folder = s("destination");
+      const node = need(source);
+      const move = Boolean(args.move);
+      if (folder === source || folder.startsWith(source + "/"))
+        throw new Error("A folder can't be placed inside itself.");
+      if (move && parentOf(source) === folder)
+        throw new Error(`“${node.name}” is already in this folder.`);
+      const job: Transfer = {
+        id: crypto.randomUUID(),
+        name: node.name,
+        done: 0,
+        total: 100,
+        state: "running",
+      };
+      jobs.push(job);
+      const timer = setInterval(() => {
+        if (job.state !== "running") return clearInterval(timer);
+        job.done = Math.min(100, job.done + 20);
+        if (job.done < 100) return;
+        clearInterval(timer);
+        if (!fs.has(source)) {
+          job.state = "error";
+          job.error = `“${node.name}” no longer exists.`;
+          return;
+        }
+        relocate(source, `${folder}/${freeName(folder, node.name)}`, !move);
+        job.state = "done";
+      }, 250);
+      return job.id;
+    }
+    case "cancel": {
+      const job = jobs.find((j) => j.id === s("id"));
+      if (job?.state === "running") job.state = "cancelled";
+      return null;
+    }
+    case "transfers":
+      return jobs.slice(-10).map((j) => ({ ...j }));
+    case "trash": {
+      const path = s("path");
+      const node = need(path);
+      if (track && subtree(path).some((n) => n.path === track!.path)) {
+        audio?.pause();
+        track = null;
+      }
+      trash.push({
+        id: crypto.randomUUID(),
+        name: node.name,
+        original: path,
+        nodes: subtree(path),
+      });
+      subtree(path).forEach((n) => fs.delete(n.path));
+      return null;
+    }
+    case "trash_list":
+      return trash.map(({ id, name, original }) => ({ id, name, original }));
+    case "restore": {
+      const index = trash.findIndex((t) => t.id === s("id"));
+      if (index < 0) throw new Error("That item is no longer in Trash.");
+      const item = trash[index];
+      if (fs.has(item.original))
+        throw new Error(
+          `Something named “${item.name}” is already in the original folder.`,
+        );
+      if (!fs.has(parentOf(item.original)))
+        throw new Error("The original folder no longer exists.");
+      item.nodes.forEach((n) => fs.set(n.path, n));
+      trash.splice(index, 1);
+      return null;
+    }
+    case "extract": {
+      const node = need(s("path"));
+      if (node.kind !== "Archive") throw new Error("Only ZIP files extract.");
+      const folder = parentOf(node.path);
+      const target = `${folder}/${freeName(folder, node.name.replace(/\.zip$/i, ""))}`;
+      dir(target);
+      for (const file of node.zip || [])
+        put(`${target}/${file}`, { size: 900, url: `/demo/${file}` });
+      return null;
+    }
+    case "preview": {
+      const node = need(s("path"));
+      if (node.kind === "Image") return { text: "", url: node.url };
+      if (node.text != null) return { text: node.text, truncated: false };
+      if (node.kind === "Audio")
+        return {
+          text: "Audio track. Open it to play — controls appear in the island.",
+          truncated: false,
+        };
+      return { text: "No preview for this file type.", truncated: false };
+    }
+    case "open": {
+      const node = need(s("path"));
+      if (node.kind === "Audio" && node.url) {
+        await play(node);
+        return null;
+      }
+      throw new Error(`Use Preview to view “${node.name}” in the demo.`);
+    }
+    case "index":
+      return { indexed: fs.size, skipped: 0 };
+    case "search": {
+      const q = s("query").toLowerCase();
       return {
-        path: args.path || "/preview",
-        entries: args.path === "/preview" || !args.path ? previewFiles : [],
-        warning: "Design preview · launch the native app to access real files.",
-      } as T;
+        path: demoHome,
+        entries: [...fs.values()].filter(
+          (n) =>
+            n.path.startsWith(demoHome + "/") &&
+            n.name.toLowerCase().includes(q),
+        ),
+      } satisfies Listing;
+    }
     case "status":
       return {
-        volume: null,
-        brightness: null,
-        title: "No player connected",
-        artist: "Native session required",
-        playing: false,
+        live: false,
+        volume,
+        brightness,
+        title: track ? track.name.replace(/\.[^.]+$/, "") : "Nothing playing",
+        artist: track ? "Lumius sample" : "Press play to start a track",
+        playing: Boolean(audio && !audio.paused),
         battery: null,
-        platform: "Browser design preview",
-      } as T;
-    case "trash_list":
-      return [] as TrashItem[] as T;
-    case "transfers":
-      return [] as Transfer[] as T;
-    case "mounts":
-      return [] as Entry[] as T;
-    default:
+        platform: "Browser demo",
+      } satisfies Status;
+    case "control": {
+      const value = Math.max(0, Math.min(100, Number(args.value ?? 0)));
+      switch (s("action")) {
+        case "play-pause": {
+          const next = track || firstTrack();
+          if (!next) throw new Error("Add a track to Music to play it.");
+          if (audio && !audio.paused && track) audio.pause();
+          else await play(next);
+          return null;
+        }
+        case "next":
+        case "previous": {
+          const next = track || firstTrack();
+          if (!next) throw new Error("Add a track to Music to play it.");
+          if (audio) audio.currentTime = 0;
+          await play(next);
+          return null;
+        }
+        case "volume":
+          volume = value;
+          if (audio) audio.volume = value / 100;
+          return null;
+        case "brightness":
+          brightness = Math.max(10, value);
+          return null;
+      }
+      throw new Error("Unknown control.");
+    }
+    case "launch": {
+      const id = s("id");
+      if (id === "browser") {
+        window.open("https://www.google.com", "_blank", "noopener");
+        return null;
+      }
+      if (id === "music") {
+        const next = track || firstTrack();
+        if (next) await play(next);
+        return null;
+      }
       throw new Error(
-        "This action requires the native Lumius session. Browser preview does not modify your computer.",
+        `${appLabels[id] || "This app"} runs in the installed Lumius OS. The browser demo can't open system apps.`,
       );
+    }
+    case "window_region":
+    case "island_expand":
+      return null;
+    default:
+      throw new Error("This action runs in the installed Lumius OS.");
+  }
+}
+
+export async function call<T>(
+  command: string,
+  args: Record<string, unknown> = {},
+): Promise<T> {
+  if (native) return invoke<T>("rpc", { command, args });
+  try {
+    return (await demo(command, args)) as T;
+  } catch (e) {
+    // Match native errors, which arrive as plain strings.
+    throw e instanceof Error ? e.message : e;
   }
 }

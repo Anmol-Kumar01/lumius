@@ -18,7 +18,7 @@ test("desktop preview is honest, Files navigation and layout work", async ({
   await page.goto("/");
   await expect(
     page.getByText(
-      "Design preview · native Linux build required for system actions",
+      "Demo mode · sample files only, nothing on this computer changes",
     ),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
@@ -27,7 +27,7 @@ test("desktop preview is honest, Files navigation and layout work", async ({
   await page.getByRole("listitem").filter({ hasText: "Documents" }).dblclick();
   await expect(page.getByRole("heading", { name: /^Documents/ })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page.locator('.file-tabs .current')).toContainText('Home');
+  await expect(page.locator(".file-tabs .current")).toContainText("Home");
   await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
   expect(errors).toEqual([]);
   await page.screenshot({
@@ -35,15 +35,13 @@ test("desktop preview is honest, Files navigation and layout work", async ({
     fullPage: true,
   });
 });
-test("island expands, controls show unsupported state, apps open Settings", async ({
-  page,
-}) => {
+test("island expands, controls work, apps open Settings", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Expand Dynamic Island" }).click();
   await page.getByRole("button", { name: "controls", exact: true }).click();
   await expect(
     page.getByRole("slider", { name: "Volume", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await page.getByRole("button", { name: "apps", exact: true }).click();
   await page
     .locator(".island")
@@ -75,19 +73,60 @@ test("Settings persist, wallpaper and accessibility settings update", async ({
     fullPage: true,
   });
 });
-test("preview mutations fail visibly, no fake file creation", async ({
-  page,
-}) => {
+test("demo file operations work end to end", async ({ page }) => {
   await page.goto("/");
+  const row = (name: string) =>
+    page.getByRole("listitem").filter({ hasText: name });
   await page.getByRole("button", { name: "New folder", exact: true }).click();
   await page.getByRole("textbox", { name: "Folder or file name" }).fill("Test");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "requires the native Lumius session",
+  await expect(row("Test")).toHaveCount(1);
+  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await page.getByRole("textbox", { name: "Folder or file name" }).fill("Test");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("already exists");
+  await row("Test").click();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("textbox", { name: "Folder or file name" }).fill("Demo");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(row("Demo")).toHaveCount(1);
+  await row("Demo").click();
+  await page
+    .getByRole("button", { name: "Move to Trash", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Move to Trash", exact: true })
+    .last()
+    .click();
+  await expect(row("Demo")).toHaveCount(0);
+  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).first().click();
+  await expect(row("Demo")).toHaveCount(1);
+  await row("Documents").dblclick();
+  await row("Welcome to Lumius.txt").click();
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  await expect(row("Welcome to Lumius 2.txt")).toHaveCount(1, {
+    timeout: 6000,
+  });
+  await row("Welcome to Lumius.txt").dblclick();
+  await expect(page.locator(".preview-dialog pre")).toContainText(
+    "Welcome to Lumius.",
   );
-  await expect(
-    page.getByRole("listitem").filter({ hasText: "Test" }),
-  ).toHaveCount(0);
+});
+test("music plays from Files and the island controls it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("listitem").filter({ hasText: "Music" }).dblclick();
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: "Lumius Aurora.wav" })
+    .dblclick();
+  await page.getByRole("button", { name: "Expand Dynamic Island" }).click();
+  await expect(page.locator(".now-playing b")).toHaveText("Lumius Aurora");
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
 });
 test("compact desktop has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
