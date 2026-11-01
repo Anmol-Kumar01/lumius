@@ -4,7 +4,7 @@ An installable Debian-based desktop project with a frosted glass shell, Files, S
 
 ## Build on Debian 13 amd64
 
-On Ubuntu or another distribution, follow the step-by-step guide in [docs/BUILD.md](docs/BUILD.md), which builds inside a Debian 13 container.
+On a Windows laptop, follow [docs/RUN-ON-WINDOWS.md](docs/RUN-ON-WINDOWS.md). On Ubuntu or another distribution, follow the step-by-step guide in [docs/BUILD.md](docs/BUILD.md), which builds inside a Debian 13 container.
 
 ```sh
 sudo bash scripts/bootstrap-linux.sh
