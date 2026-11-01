@@ -7,65 +7,32 @@ import {
 } from "react";
 import { AnimatePresence, motion, MotionConfig, Reorder } from "motion/react";
 import {
-  Folder,
-  House,
-  DownloadSimple,
-  MusicNotes,
-  Image,
-  FilmStrip,
-  Trash,
-  HardDrives,
-  Star,
-  Clock,
-  FileText,
-  Gear,
-  SquaresFour,
-  List,
-  ArrowLeft,
   ArrowRight,
-  ArrowUp,
   MagnifyingGlass,
-  Plus,
   X,
-  Minus,
-  Copy,
-  Scissors,
-  Clipboard,
-  ArrowClockwise,
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  SpeakerHigh,
-  Sun,
-  WifiHigh,
-  Bluetooth,
-  Monitor,
-  Palette,
   Info,
-  Terminal,
-  Globe,
-  Power,
-  Check,
-  FileZip,
   ArrowSquareOut,
-  DotsThree,
-  SidebarSimple,
-  BatteryHigh,
-  Desktop,
-  FloppyDisk,
-  Eye,
-  Storefront,
-  Lock,
   Sparkle,
   Key,
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { call, defaults, native } from "./bridge";
-import { islandTransition } from "./nectar-motion";
-import Toggle from "./Toggle";
 import GlassOptics from "./GlassOptics";
+import { GlassIcon } from "./GlassIcon";
+import {
+  accents,
+  appIcon,
+  appNames,
+  Glyph,
+  Island,
+  P,
+  Shelf,
+  TopBar,
+  useWindows,
+  WindowControls,
+  WindowFrame,
+} from "./Shell";
 import type {
   Entry,
   Listing,
@@ -76,26 +43,6 @@ import type {
   Answer,
 } from "./types";
 
-const appIcons: Record<string, typeof Folder> = {
-  files: Folder,
-  settings: Gear,
-  music: MusicNotes,
-  browser: Globe,
-  terminal: Terminal,
-  store: Storefront,
-  ask: Sparkle,
-  installer: DownloadSimple,
-};
-const appNames: Record<string, string> = {
-  files: "Files",
-  settings: "Settings",
-  music: "Music",
-  browser: "Browser",
-  terminal: "Terminal",
-  store: "Software",
-  ask: "Ask",
-  installer: "Install Lumius",
-};
 const size = (n: number) =>
   n < 1024
     ? `${n} B`
@@ -128,30 +75,55 @@ function IconButton({
     </button>
   );
 }
-function EntryIcon({
-  entry,
-  large = false,
-}: {
-  entry: Entry;
-  large?: boolean;
-}) {
-  const Icon = entry.directory
-    ? Folder
-    : entry.kind === "Audio"
-      ? MusicNotes
-      : entry.kind === "Image"
-        ? Image
-        : entry.kind === "Archive"
-          ? FileZip
-          : FileText;
-  return (
-    <span
-      className={`entry-icon ${entry.directory ? "folder" : entry.kind.toLowerCase()} ${large ? "large" : ""}`}
-    >
-      <Icon weight={entry.directory ? "fill" : "duotone"} />
-    </span>
-  );
+type Rect = { x: number; y: number; width: number; height: number };
+// KWin blurs and accepts input in rectangles, so rounded shapes are approximated
+// with a few stepped strips per corner.
+function roundedRects(box: DOMRect, top: number, bottom: number): Rect[] {
+  const steps = 4;
+  const strips = (r: number, fromTop: boolean) =>
+    Array.from({ length: r > 1 ? steps : 0 }, (_, k) => {
+      const h = r / steps;
+      const dy = r - (k + 0.5) * h;
+      const inset = r - Math.sqrt(Math.max(0, r * r - dy * dy));
+      return {
+        x: box.x + inset,
+        y: fromTop ? box.y + k * h : box.bottom - (k + 1) * h,
+        width: box.width - 2 * inset,
+        height: h,
+      };
+    });
+  return [
+    ...strips(top, true),
+    { x: box.x, y: box.y + top, width: box.width, height: box.height - top - bottom },
+    ...strips(bottom, false),
+  ]
+    .filter((r) => r.width > 0 && r.height > 0)
+    .map((r) => ({
+      x: Math.max(0, r.x),
+      y: Math.max(0, r.y),
+      width: r.width,
+      height: r.height,
+    }));
 }
+const regionSelector: Record<string, string> = {
+  bar: ".lm-cap",
+  island: ".lm-island",
+  dock: ".lm-shelf",
+  files: ".lm-window",
+  settings: ".lm-window",
+  ask: ".lm-window",
+};
+// Night follows the clock in Auto: 7 PM to 7 AM.
+const isNight = (s: Settings, now: Date) =>
+  s.light === "night" ||
+  (s.light === "auto" && (now.getHours() >= 19 || now.getHours() < 7));
+const glassLevels = [
+  { name: "Thin", value: 25, alpha: 0.28, blur: 10 },
+  { name: "Regular", value: 50, alpha: 0.5, blur: 24 },
+  { name: "Thick", value: 75, alpha: 0.72, blur: 40 },
+];
+const glassLevel = (n: number) =>
+  glassLevels.reduce((a, b) => (Math.abs(b.value - n) < Math.abs(a.value - n) ? b : a));
 
 export default function App() {
   const view = new URLSearchParams(location.search).get("view") || "desktop";
@@ -163,31 +135,35 @@ export default function App() {
         .catch(console.error);
   }, [view]);
   useEffect(() => {
-    if (!native || !["bar", "dock", "island"].includes(view)) return;
-    const element = document.querySelector(
-      view === "bar" ? ".menubar" : "." + view,
-    );
-    if (!element) return;
+    if (!native || !regionSelector[view]) return;
     let frame = 0;
+    const observer = new ResizeObserver(() => report());
     const report = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const box = element.getBoundingClientRect();
-        call("window_region", {
-          x: Math.max(0, box.x),
-          y: Math.max(0, box.y),
-          width: box.width,
-          height: box.height,
-        }).catch(console.error);
+        const elements = [...document.querySelectorAll(regionSelector[view])];
+        elements.forEach((e) => observer.observe(e));
+        const rects = elements.flatMap((e) => {
+          const style = getComputedStyle(e);
+          return roundedRects(
+            e.getBoundingClientRect(),
+            parseFloat(style.borderTopLeftRadius) || 0,
+            parseFloat(style.borderBottomLeftRadius) || 0,
+          );
+        });
+        if (rects.length)
+          call("window_region", { rects }).catch(console.error);
       });
     };
-    const observer = new ResizeObserver(report);
-    observer.observe(element);
     observer.observe(document.documentElement);
+    // The island and the shelf change shape when they open or gain window chips.
+    const mutations = new MutationObserver(report);
+    mutations.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", report);
     report();
     return () => {
       observer.disconnect();
+      mutations.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", report);
     };
@@ -210,7 +186,8 @@ export default function App() {
           call<Transfer[]>("transfers"),
         ]);
         if (alive) {
-          if (!saving.current) setSettings(s);
+          // Settings saved by older versions lack the Lumius 1.0 fields.
+          if (!saving.current) setSettings({ ...defaults, ...s });
           setTransfers(t);
         }
       } catch (e) {
@@ -283,14 +260,27 @@ export default function App() {
     }
   };
   const env = { settings, change, launch, status, control, transfers };
+  const { windows, desktop } = useWindows(
+    view === "dock" || view === "bar",
+    [previewView, ...(status?.playing && previewView !== "music" ? ["music"] : [])],
+  );
+  const night = isNight(settings, now);
+  const level = glassLevel(settings.glass);
+  const frame = (title: string, body: ReactNode) => (
+    <WindowFrame title={title} settings={settings}>
+      {body}
+    </WindowFrame>
+  );
   return (
     <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
       <div
-        className={`lumius theme-${settings.wallpaper} view-${view} ${settings.reducedTransparency ? "solid" : ""} ${settings.reducedMotion ? "still" : ""}`}
+        className={`lumius lm theme-${settings.wallpaper} view-${view} ${night ? "night" : "day"} ${settings.reducedTransparency ? "solid" : ""} ${settings.reducedMotion ? "still" : ""} ${settings.aurora ? "aurora-on" : ""}`}
         style={
           {
-            "--glass-alpha": `${0.3 + settings.glass * 0.004}`,
-            "--blur": `${12 + settings.glass * 0.35}px`,
+            "--accent": accents[settings.accent] ?? accents.lumen,
+            "--glass-alpha": `${level.alpha}`,
+            "--glass-blur": `${level.blur}px`,
+            "--blur": `${level.blur}px`,
             // The browser demo has no backlight, so brightness dims the page.
             filter:
               !native && status?.brightness != null
@@ -302,40 +292,44 @@ export default function App() {
         <GlassOptics />
         {view === "desktop" && (
           <>
-            <div className="wallpaper" />
-            <Menubar launch={launch} status={status} now={now} />
-            <div className="desktop-shortcuts">
-              <button onClick={() => launch("files")}>
-                <span>
-                  <HardDrives weight="duotone" />
-                </span>
-                Lumius Home
+            <div className="lm-aurora" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+            <TopBar launch={launch} status={status} now={now} desktop={desktop} />
+            <div className="lm-desk-icons">
+              <button className="lm-cellf" onClick={() => launch("files")}>
+                <GlassIcon app="lumius" size={58} />
+                <span>Lumius Home</span>
               </button>
-              <button onClick={() => launch("installer")}>
-                <span>
-                  <DownloadSimple weight="duotone" />
-                </span>
-                Install Lumius
+              <button className="lm-cellf" onClick={() => launch("installer")}>
+                <GlassIcon app="installer" size={58} />
+                <span>Install Lumius</span>
               </button>
             </div>
-            <Island {...env} />
-            <div className="desktop-window">
-              <WindowFrame title={appNames[previewView]} preview>
-                <>
-                  {previewView === "files" ? (
-                    <Files launch={launch} transfers={transfers} />
-                  ) : previewView === "ask" ? (
-                    <AskPanel />
-                  ) : (
-                    <SettingsPanel {...env} />
-                  )}
-                </>
-              </WindowFrame>
+            <Island
+              status={status}
+              control={control}
+              transfers={transfers}
+              launch={launch}
+              now={now}
+              reducedMotion={settings.reducedMotion}
+            />
+            <div className="lm-desk-window" key={previewView}>
+              {frame(
+                appNames[previewView],
+                previewView === "files" ? (
+                  <Files launch={launch} transfers={transfers} settings={settings} />
+                ) : previewView === "ask" ? (
+                  <AskPanel />
+                ) : (
+                  <SettingsPanel {...env} />
+                ),
+              )}
             </div>
-            <Dock {...env} />
-            <div className="desktop-wordmark">
-              lumius<span>A little more possibility.</span>
-            </div>
+            <Shelf settings={settings} launch={launch} windows={windows} />
             {!native && (
               <div className="preview-label">
                 Demo mode · sample files only, nothing on this computer changes
@@ -343,26 +337,24 @@ export default function App() {
             )}
           </>
         )}
-        {view === "files" && (
-          <WindowFrame title="Files">
-            <Files launch={launch} transfers={transfers} />
-          </WindowFrame>
-        )}
-        {view === "settings" && (
-          <WindowFrame title="Settings">
-            <SettingsPanel {...env} />
-          </WindowFrame>
-        )}
-        {view === "ask" && (
-          <WindowFrame title="Ask">
-            <AskPanel />
-          </WindowFrame>
-        )}
+        {view === "files" &&
+          frame("Files", <Files launch={launch} transfers={transfers} settings={settings} />)}
+        {view === "settings" && frame("Settings", <SettingsPanel {...env} />)}
+        {view === "ask" && frame("Ask", <AskPanel />)}
         {view === "bar" && (
-          <Menubar launch={launch} status={status} now={now} />
-        )}{" "}
-        {view === "island" && <Island {...env} />}
-        {view === "dock" && <Dock {...env} />}
+          <TopBar launch={launch} status={status} now={now} desktop={desktop} />
+        )}
+        {view === "island" && (
+          <Island
+            status={status}
+            control={control}
+            transfers={transfers}
+            launch={launch}
+            now={now}
+            reducedMotion={settings.reducedMotion}
+          />
+        )}
+        {view === "dock" && <Shelf settings={settings} launch={launch} windows={windows} />}
         <AnimatePresence>
           {error && (
             <motion.div
@@ -384,78 +376,22 @@ export default function App() {
     </MotionConfig>
   );
 }
-function WindowFrame({
-  title,
-  children,
-  preview = false,
-}: {
-  title: string;
-  children: ReactNode;
-  preview?: boolean;
-}) {
-  const action = (a: "close" | "minimize" | "toggleMaximize") => {
-    if (native) getCurrentWindow()[a]().catch(console.error);
-  };
-  return (
-    <main className="app-window glass" aria-label={`Lumius ${title}`}>
-      <div
-        className="window-titlebar"
-        onDoubleClick={() => action("toggleMaximize")}
-        onPointerDown={(e) => {
-          if (native && e.button === 0 && e.target === e.currentTarget)
-            getCurrentWindow().startDragging().catch(console.error);
-        }}
-      >
-        <div className="traffic-lights">
-          <button aria-label="Close window" onClick={() => action("close")}>
-            <X />
-          </button>
-          <button
-            aria-label="Minimize window"
-            onClick={() => action("minimize")}
-          >
-            <Minus />
-          </button>
-          <button
-            aria-label="Maximize window"
-            onClick={() => action("toggleMaximize")}
-          >
-            <Plus />
-          </button>
-        </div>
-        <span>
-          Lumius <b>{title}</b>
-        </span>
-        <div>
-          {preview ? (
-            <span className="native-badge">Preview</span>
-          ) : (
-            <IconButton
-              label="Maximize window"
-              onClick={() => action("toggleMaximize")}
-            >
-              <SquaresFour />
-            </IconButton>
-          )}
-        </div>
-      </div>
-      {children}
-    </main>
-  );
-}
 
 function Files({
   launch,
   transfers,
+  settings,
 }: {
   launch: (id: string) => void;
   transfers: Transfer[];
+  settings: Settings;
 }) {
   const [home, setHome] = useState(""),
     [path, setPath] = useState(""),
     [listing, setListing] = useState<Listing>({ path: "", entries: [] }),
     [selected, setSelected] = useState<Entry | null>(null),
-    [layout, setLayout] = useState<"list" | "grid">("list"),
+    [layout, setLayout] = useState<"list" | "grid">("grid"),
+    [menu, setMenu] = useState(false),
     [query, setQuery] = useState(""),
     [global, setGlobal] = useState(false),
     [sort, setSort] = useState("name"),
@@ -525,7 +461,16 @@ function Files({
         setTabs([h]);
         setHistory([h]);
         setHistoryIndex(0);
-        load(h);
+        let trashFirst = false;
+        try {
+          trashFirst = localStorage.getItem("lumius-files-open") === "trash";
+          localStorage.removeItem("lumius-files-open");
+        } catch {
+          /* no storage: open Home */
+        }
+        load(h).then(() => {
+          if (trashFirst) openTrash();
+        });
       })
       .catch((e) => setError(String(e)));
     call<Entry[]>("mounts")
@@ -620,207 +565,73 @@ function Files({
             ? b.modified - a.modified
             : a.name.localeCompare(b.name)),
     );
+  const openTrash = async () => {
+    try {
+      setTrash(await call<TrashItem[]>("trash_list"));
+      setSelected(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
   const places = [
-    { name: "Home", folder: "", icon: House },
-    { name: "Desktop", folder: "Desktop", icon: Desktop },
-    { name: "Documents", folder: "Documents", icon: FileText },
-    { name: "Downloads", folder: "Downloads", icon: DownloadSimple },
-    { name: "Music", folder: "Music", icon: MusicNotes },
-    { name: "Pictures", folder: "Pictures", icon: Image },
-    { name: "Videos", folder: "Videos", icon: FilmStrip },
+    { name: "Home", folder: "", d: P.home },
+    { name: "Desktop", folder: "Desktop", d: P.desktop },
+    { name: "Documents", folder: "Documents", d: P.documents },
+    { name: "Downloads", folder: "Downloads", d: P.downloads },
+    { name: "Music", folder: "Music", d: P.music },
+    { name: "Pictures", folder: "Pictures", d: P.pictures },
+    { name: "Videos", folder: "Videos", d: P.videos },
   ];
+  const title = trash
+    ? "Trash"
+    : path === home
+      ? "Home"
+      : path.split("/").pop() || "Lumius disk";
+  const historyGo = (i: number) => {
+    setHistoryIndex(i);
+    setTabs((ts) => ts.map((p, j) => (j === activeTab ? history[i] : p)));
+    load(history[i]);
+  };
+  const special: Record<string, string> = {
+    Desktop: "folder-desktop",
+    Documents: "folder-documents",
+    Downloads: "folder-downloads",
+    Music: "folder-music",
+    Pictures: "folder-pictures",
+    Videos: "folder-videos",
+  };
+  const iconFor = (e: Entry) =>
+    e.directory
+      ? path === home && special[e.name]
+        ? special[e.name]
+        : "folder"
+      : ({ Audio: "music", Image: "photos", Archive: "apps", Document: "notes" } as Record<string, string>)[e.kind] ?? "notes";
+  const tool = (label: string, d: string, onClick: () => void, disabled = false) => (
+    <button className="lm-wc" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
+      <Glyph d={d} size={17} width={1.9} />
+    </button>
+  );
   return (
-    <div className="app-body files-body">
-      <aside className="files-sidebar">
-        <div className="sidebar-heading">
-          <span className="logo-orb" />
-          lumius<span className="small-label">FILES</span>
-        </div>
-        <button
-          className="new-folder"
-          onClick={() => setModal({ type: "mkdir", value: "" })}
-        >
-          <Plus weight="bold" />
-          New folder
-        </button>
-        <p className="section-caption">FAVORITES</p>
-        <nav>
-          {places.map(({ name, folder, icon: Icon }) => (
-            <button
-              key={name}
-              className={
-                path === (folder ? `${home}/${folder}` : home) && !trash
-                  ? "selected"
-                  : ""
-              }
-              onClick={() => navigate(folder ? `${home}/${folder}` : home)}
-            >
-              <Icon weight="duotone" />
-              {name}
-              {name === "Home" && <span>⌘ 1</span>}
-            </button>
-          ))}
+    <div className="lm-app lm-files">
+      <nav className="lm-sidebar" aria-label="Files sidebar" data-drag>
+        <div className="lm-side-head" data-drag>
+          <GlassIcon app="files" size={28} />
+          <span>Files</span>
           <button
-            className={trash ? "selected" : ""}
-            onClick={async () => {
-              try {
-                setTrash(await call<TrashItem[]>("trash_list"));
-                setSelected(null);
-              } catch (e) {
-                setError(String(e));
-              }
-            }}
+            className="lm-wc"
+            aria-label="Files menu"
+            aria-expanded={menu}
+            onClick={() => setMenu(!menu)}
           >
-            <Trash />
-            Trash
+            <Glyph d={P.more} size={16} fill />
           </button>
-        </nav>
-        <p className="section-caption">DEVICES</p>
-        <nav>
-          <button onClick={() => navigate("/")}>
-            <HardDrives />
-            Lumius disk
-          </button>
-          {mounts.map((d) => (
-            <button key={d.path} onClick={() => navigate(d.path)}>
-              <FloppyDisk />
-              {d.name}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div>
-            <span className="user-avatar">L</span>
-            <div>
-              <b>Your workspace</b>
-              <small>Make yourself at home</small>
-            </div>
-            <button
-              title="Open Settings"
-              aria-label="Open Settings"
-              onClick={() => launch("settings")}
-            >
-              <Gear />
-            </button>
-          </div>
-          <span className="system-storage">
-            {native
-              ? "Connected to local filesystem"
-              : "Browser demo · sample files"}
-          </span>
-        </div>
-      </aside>
-      <section className="files-main">
-        <div className="file-scroll">
-          <div className="files-chrome">
-            <div className="file-toolbar">
-              <div>
-                <IconButton
-                  label="Back"
-                  disabled={historyIndex <= 0}
-                  onClick={() => {
-                    const i = historyIndex - 1;
-                    setHistoryIndex(i);
-                    setTabs((ts) =>
-                      ts.map((p, j) => (j === activeTab ? history[i] : p)),
-                    );
-                    load(history[i]);
-                  }}
-                >
-                  <ArrowLeft />
-                </IconButton>
-                <IconButton
-                  label="Forward"
-                  disabled={historyIndex >= history.length - 1}
-                  onClick={() => {
-                    const i = historyIndex + 1;
-                    setHistoryIndex(i);
-                    setTabs((ts) =>
-                      ts.map((p, j) => (j === activeTab ? history[i] : p)),
-                    );
-                    load(history[i]);
-                  }}
-                >
-                  <ArrowRight />
-                </IconButton>
-                <IconButton
-                  label="Parent folder"
-                  disabled={!path || path === "/"}
-                  onClick={() =>
-                    navigate(path.slice(0, path.lastIndexOf("/")) || "/")
-                  }
-                >
-                  <ArrowUp />
-                </IconButton>
-                <span className="toolbar-divider" />
-                <span className="breadcrumb">
-                  <House size={16} />
-                  <span>
-                    {trash
-                      ? "Trash"
-                      : path === home
-                        ? "Home"
-                        : path.split("/").filter(Boolean).slice(-2).join(" / ")}
-                  </span>
-                </span>
-              </div>
-              <form
-                className="search glass"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  search();
-                }}
-              >
-                <MagnifyingGlass />
-                <input
-                  aria-label="Search files"
-                  placeholder={
-                    global ? "Search indexed home…" : "Search this folder…"
-                  }
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <kbd>↵</kbd>
-              </form>
-            </div>
-            <div className="file-tabs">
-              {tabs.map((t, i) => (
-                <button
-                  key={i}
-                  className={activeTab === i ? "current" : ""}
-                  onClick={() => {
-                    setActiveTab(i);
-                    setHistory([t]);
-                    setHistoryIndex(0);
-                    setQuery("");
-                    setGlobal(false);
-                    load(t);
-                  }}
-                >
-                  <Folder size={15} />
-                  {t === home ? "Home" : t.split("/").pop() || "Disk"}
-                  {tabs.length > 1 && (
-                    <span
-                      role="button"
-                      aria-label={`Close tab ${i + 1}`}
-                      tabIndex={0}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(i);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          closeTab(i);
-                        }
-                      }}
-                    >
-                      <X size={12} />
-                    </span>
-                  )}
-                </button>
-              ))}
-              <IconButton
-                label="New tab"
+          {menu && (
+            <div className="lm-menu" role="menu" onClick={() => setMenu(false)}>
+              <button role="menuitem" onClick={() => setModal({ type: "mkdir", value: "" })}>
+                <Glyph d={P.plus} size={16} /> New folder
+              </button>
+              <button
+                role="menuitem"
                 onClick={() => {
                   setActiveTab(tabs.length);
                   setTabs((t) => [...t, path]);
@@ -828,232 +639,266 @@ function Files({
                   setHistoryIndex(0);
                 }}
               >
-                <Plus />
-              </IconButton>
-            </div>
-          </div>
-          <div className="files-content">
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">YOUR SPACE, BEAUTIFULLY ORGANIZED</p>
-                <h1>
-                  {trash
-                    ? "Trash"
-                    : path === home
-                      ? "My files"
-                      : path.split("/").pop() || "Lumius disk"}
-                  <span className="count-pill">
-                    {trash ? trash.length : entries.length}
-                  </span>
-                </h1>
-              </div>
-              <div>
-                <IconButton label="Refresh" onClick={() => load(path)}>
-                  <ArrowClockwise />
-                </IconButton>
-                <div className="segmented">
-                  <IconButton
-                    label="Grid view"
-                    active={layout === "grid"}
-                    onClick={() => setLayout("grid")}
-                  >
-                    <SquaresFour />
-                  </IconButton>
-                  <IconButton
-                    label="List view"
-                    active={layout === "list"}
-                    onClick={() => setLayout("list")}
-                  >
-                    <List />
-                  </IconButton>
-                </div>
-              </div>
-            </div>
-            {!trash && path === home && !query && (
-              <>
-                <div className="subheading">
-                  <h2>Quick access</h2>
-                  <span>Everything, a little closer.</span>
-                </div>
-                <div className="quick-access">
-                  {places.slice(2, 6).map(({ name, folder, icon: Icon }, i) => (
-                    <button
-                      className={"quick-card card-" + i}
-                      key={name}
-                      onClick={() => navigate(`${home}/${folder}`)}
-                    >
-                      <div>
-                        <Icon weight="duotone" />
-                        <ArrowSquareOut size={16} />
-                      </div>
-                      <b>{name}</b>
-                      <small>
-                        Open folder
-                        <ArrowRight size={12} />
-                      </small>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            <div className="subheading files-actions">
-              <h2>{trash ? "Recently deleted" : "All files"}</h2>
-              <div>
-                <label className="scope-check">
-                  <input
-                    type="checkbox"
-                    checked={global}
-                    onChange={(e) => setGlobal(e.target.checked)}
-                  />
-                  Indexed search
-                </label>
-                {global && (
-                  <button onClick={buildIndex} disabled={busy}>
-                    Rebuild index
-                  </button>
-                )}
-                <select
-                  aria-label="Sort files"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value)}
-                >
-                  <option value="name">Name</option>
-                  <option value="modified">Modified</option>
-                  <option value="size">Size</option>
-                </select>
-              </div>
-            </div>
-            {listing.warning && !trash && (
-              <p className="inline-note">{listing.warning}</p>
-            )}
-            {error && (
-              <div className="inline-error" role="alert">
-                <Info />
-                <span>{error}</span>
-                <button
-                  aria-label="Dismiss Files error"
-                  onClick={() => setError("")}
-                >
-                  <X />
+                <Glyph d={P.copy} size={16} /> New tab
+              </button>
+              <button role="menuitem" onClick={() => setLayout(layout === "grid" ? "list" : "grid")}>
+                <Glyph d={layout === "grid" ? P.list : P.grid} size={16} />
+                {layout === "grid" ? "List view" : "Icon view"}
+              </button>
+              <button role="menuitem" onClick={() => load(path)}>
+                <Glyph d={P.refresh} size={16} /> Refresh
+              </button>
+              <hr />
+              {(["name", "modified", "size"] as const).map((k) => (
+                <button role="menuitemradio" aria-checked={sort === k} key={k} onClick={() => setSort(k)}>
+                  <Glyph d={sort === k ? P.check : ""} size={16} width={2} /> Sort by {k}
                 </button>
-              </div>
-            )}
-            {busy && (
-              <div role="status" className="loading-line">
-                Working…
-              </div>
-            )}
-            {trash ? (
-              <div className="trash-list">
-                {trash.map((t) => (
-                  <div key={t.id}>
-                    <Trash />
-                    <span>
-                      <b>{t.name}</b>
-                      <small>{t.original}</small>
-                    </span>
-                    <button
-                      onClick={async () => {
-                        await execute("restore", { id: t.id });
-                        try {
-                          setTrash(await call<TrashItem[]>("trash_list"));
-                        } catch (e) {
-                          setError(String(e));
-                        }
-                      }}
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-                {!trash.length && (
-                  <div className="empty-state">
-                    <Trash />
-                    <h3>All clear.</h3>
-                    <p>Deleted files appear here for restoration.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div
-                  className={"file-entries " + layout}
-                  role="list"
-                  aria-label="Files"
-                >
-                  {layout === "list" && (
-                    <div className="list-head">
-                      <span>Name</span>
-                      <span>Date modified</span>
-                      <span>Size</span>
-                      <span>Kind</span>
-                    </div>
-                  )}
-                  {entries.map((e) => (
-                    <button
-                      role="listitem"
-                      className={
-                        "file-entry " +
-                        (selected?.path === e.path ? "selected" : "")
-                      }
-                      key={e.path}
-                      onClick={() => setSelected(e)}
-                      onDoubleClick={() => open(e)}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter") open(e);
-                        if (ev.key === " ") {
-                          ev.preventDefault();
-                          showPreview(e);
-                        }
-                      }}
-                    >
-                      <span className="filename">
-                        <EntryIcon entry={e} large={layout === "grid"} />
-                        <span>{e.name}</span>
-                      </span>
-                      {layout === "list" && (
-                        <>
-                          <span>
-                            {e.modified
-                              ? new Date(e.modified * 1000).toLocaleDateString(
-                                  "en-US",
-                                  {
-                                    month: "short",
-                                    day: "numeric",
-                                    year: "numeric",
-                                  },
-                                )
-                              : "—"}
-                          </span>
-                          <span>{e.directory ? "—" : size(e.size)}</span>
-                          <span>{e.kind}</span>
-                        </>
-                      )}
-                    </button>
-                  ))}
-                </div>
-                {!entries.length && !busy && (
-                  <div className="empty-state">
-                    <Folder weight="duotone" />
-                    <h3>
-                      {query ? "Nothing found." : "Room for something new."}
-                    </h3>
-                    <p>
-                      {query
-                        ? "Try another filename or rebuild the home index."
-                        : "Create a folder or paste files here."}
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              ))}
+              <hr />
+              <button role="menuitemcheckbox" aria-checked={global} onClick={() => setGlobal(!global)}>
+                <Glyph d={global ? P.check : ""} size={16} width={2} /> Search all of Home
+              </button>
+              {global && (
+                <button role="menuitem" onClick={buildIndex} disabled={busy}>
+                  <Glyph d={P.refresh} size={16} /> Rebuild search index
+                </button>
+              )}
+              <button role="menuitem" onClick={() => launch("settings")}>
+                <Glyph d={P.look} size={16} /> Settings
+              </button>
+            </div>
+          )}
         </div>
-        <div className="selection-bar">
+        <div className="lm-sec">Places</div>
+        {places.map(({ name, folder, d }) => {
+          const target = folder ? `${home}/${folder}` : home;
+          return (
+            <button
+              key={name}
+              className={"lm-side" + (path === target && !trash ? " on" : "")}
+              aria-current={path === target && !trash ? "page" : undefined}
+              onClick={() => navigate(target)}
+            >
+              <Glyph d={d} />
+              {name}
+            </button>
+          );
+        })}
+        <div className="lm-sec">Devices</div>
+        <button
+          className={"lm-side" + (path === "/" && !trash ? " on" : "")}
+          onClick={() => navigate("/")}
+        >
+          <Glyph d={P.disk} />
+          Lumius disk
+        </button>
+        {mounts.map((d) => (
+          <button
+            key={d.path}
+            className={"lm-side" + (path === d.path && !trash ? " on" : "")}
+            onClick={() => navigate(d.path)}
+          >
+            <Glyph d={P.usb} />
+            {d.name}
+          </button>
+        ))}
+        <button className={"lm-side" + (trash ? " on" : "")} onClick={openTrash}>
+          <Glyph d={P.trash} />
+          Trash
+        </button>
+        <p className="lm-side-note">
+          {native ? "Your files on this computer" : "Browser demo · sample files"}
+        </p>
+      </nav>
+      <section className="lm-main">
+        <header className="lm-toolbar" data-drag>
+          {tool("Back", P.back, () => historyGo(historyIndex - 1), historyIndex <= 0)}
+          {tool(
+            "Forward",
+            P.forward,
+            () => historyGo(historyIndex + 1),
+            historyIndex >= history.length - 1,
+          )}
+          {tool(
+            "Parent folder",
+            P.up,
+            () => navigate(path.slice(0, path.lastIndexOf("/")) || "/"),
+            !path || path === "/" || !!trash,
+          )}
+          <h1 data-drag>{title}</h1>
+          <form
+            className="lm-search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const q = query.trim();
+              // A question goes to Ask; anything else searches files.
+              if (q.endsWith("?")) {
+                try {
+                  localStorage.setItem("lumius-ask", q);
+                } catch {
+                  /* Ask opens without the question */
+                }
+                launch("ask");
+                window.dispatchEvent(new Event("lumius-ask"));
+              } else search();
+            }}
+          >
+            <Glyph d={P.search} size={15} width={2} />
+            <input
+              aria-label="Search files"
+              placeholder={`Search ${title}, or ask`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </form>
+          <WindowControls />
+        </header>
+        {tabs.length > 1 && (
+          <div className="lm-tabs" role="tablist">
+            {tabs.map((t, i) => (
+              <button
+                key={i}
+                role="tab"
+                aria-selected={activeTab === i}
+                className={activeTab === i ? "on" : ""}
+                onClick={() => {
+                  setActiveTab(i);
+                  setHistory([t]);
+                  setHistoryIndex(0);
+                  setQuery("");
+                  setGlobal(false);
+                  load(t);
+                }}
+              >
+                {t === home ? "Home" : t.split("/").pop() || "Disk"}
+                <span
+                  role="button"
+                  aria-label={`Close tab ${i + 1}`}
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(i);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") closeTab(i);
+                  }}
+                >
+                  <Glyph d={P.close} size={11} width={2.4} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="lm-content" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
+          {listing.warning && !trash && <p className="inline-note">{listing.warning}</p>}
+          {error && (
+            <div className="inline-error" role="alert">
+              <Info />
+              <span>{error}</span>
+              <button aria-label="Dismiss Files error" onClick={() => setError("")}>
+                <X />
+              </button>
+            </div>
+          )}
+          {busy && (
+            <div role="status" className="loading-line">
+              Working…
+            </div>
+          )}
+          {trash ? (
+            <div className="trash-list">
+              {trash.map((t) => (
+                <div key={t.id}>
+                  <GlassIcon app="trash" size={34} finish="lumen" />
+                  <span>
+                    <b>{t.name}</b>
+                    <small>{t.original}</small>
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await execute("restore", { id: t.id });
+                      openTrash();
+                    }}
+                  >
+                    Restore
+                  </button>
+                </div>
+              ))}
+              {!trash.length && (
+                <div className="empty-state">
+                  <GlassIcon app="trash" size={76} finish="lumen" />
+                  <h3>All clear.</h3>
+                  <p>Deleted files appear here so you can restore them.</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className={"lm-entries " + layout} role="list" aria-label="Files">
+                {layout === "list" && (
+                  <div className="lm-list-head">
+                    <span>Name</span>
+                    <span>Date modified</span>
+                    <span>Size</span>
+                    <span>Kind</span>
+                  </div>
+                )}
+                {entries.map((e) => (
+                  <button
+                    role="listitem"
+                    className={"lm-cellf" + (selected?.path === e.path ? " selected" : "")}
+                    key={e.path}
+                    onClick={() => setSelected(e)}
+                    onDoubleClick={() => open(e)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter") open(e);
+                      if (ev.key === " ") {
+                        ev.preventDefault();
+                        showPreview(e);
+                      }
+                    }}
+                  >
+                    <GlassIcon
+                      app={iconFor(e)}
+                      size={layout === "grid" ? 76 : 26}
+                      finish={e.directory ? "lumen" : settings.iconFinish}
+                    />
+                    <span className="lm-name">{e.name}</span>
+                    {layout === "list" && (
+                      <>
+                        <span>
+                          {e.modified
+                            ? new Date(e.modified * 1000).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "—"}
+                        </span>
+                        <span>{e.directory ? "—" : size(e.size)}</span>
+                        <span>{e.kind}</span>
+                      </>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {!entries.length && !busy && (
+                <div className="empty-state">
+                  <GlassIcon app="folder" size={76} finish="lumen" />
+                  <h3>{query ? "Nothing found." : "Room for something new."}</h3>
+                  <p>
+                    {query
+                      ? "Try another name, or turn on Search all of Home in the menu."
+                      : "Create a folder from the menu, or paste files here."}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <footer className="lm-status">
           <span>
-            {selected
-              ? selected.name
-              : `${entries.length} ${entries.length === 1 ? "item" : "items"}`}{" "}
+            {selected ? selected.name : title}
             {clipboard && (
               <small>
                 {" "}
@@ -1061,84 +906,39 @@ function Files({
               </small>
             )}
           </span>
-          <div>
-            <IconButton
-              label="Open selected"
-              disabled={!selected}
-              onClick={() => selected && open(selected)}
-            >
-              <ArrowSquareOut />
-            </IconButton>
-            <IconButton
-              label="Preview"
-              disabled={!selected}
-              onClick={() => selected && showPreview(selected)}
-            >
-              <Eye />
-            </IconButton>
-            <IconButton
-              label="Copy"
-              disabled={!selected}
-              onClick={() =>
-                selected && setClipboard({ entry: selected, move: false })
-              }
-            >
-              <Copy />
-            </IconButton>
-            <IconButton
-              label="Cut"
-              disabled={!selected}
-              onClick={() =>
-                selected && setClipboard({ entry: selected, move: true })
-              }
-            >
-              <Scissors />
-            </IconButton>
-            <IconButton
-              label="Paste"
-              disabled={!clipboard || busy}
-              onClick={async () => {
-                if (clipboard) {
+          <div className="lm-actions">
+            {selected && (
+              <>
+                {tool("Open selected", P.open, () => open(selected))}
+                {tool("Preview", P.eye, () => showPreview(selected))}
+                {tool("Copy", P.copy, () => setClipboard({ entry: selected, move: false }))}
+                {tool("Cut", P.cut, () => setClipboard({ entry: selected, move: true }))}
+                {tool("Rename", P.rename, () => setModal({ type: "rename", value: selected.name }))}
+                {selected.kind === "Archive" &&
+                  tool("Extract ZIP", P.extract, () => execute("extract", { path: selected.path }))}
+                {tool("Move to Trash", P.trash, () => setModal({ type: "trash", value: selected.name }))}
+              </>
+            )}
+            {clipboard &&
+              tool(
+                "Paste",
+                P.paste,
+                async () => {
                   const result = await execute("transfer", {
                     source: clipboard.entry.path,
                     destination: path,
                     move: clipboard.move,
                   });
                   if (result) setClipboard(null);
-                }
-              }}
-            >
-              <Clipboard />
-            </IconButton>
-            <IconButton
-              label="Rename"
-              disabled={!selected}
-              onClick={() =>
-                selected && setModal({ type: "rename", value: selected.name })
-              }
-            >
-              <FileText />
-            </IconButton>
-            <IconButton
-              label="Extract ZIP"
-              disabled={!selected || selected.kind !== "Archive"}
-              onClick={() =>
-                selected && execute("extract", { path: selected.path })
-              }
-            >
-              <FileZip />
-            </IconButton>
-            <IconButton
-              label="Move to Trash"
-              disabled={!selected}
-              onClick={() =>
-                selected && setModal({ type: "trash", value: selected.name })
-              }
-            >
-              <Trash />
-            </IconButton>
+                },
+                busy || !!trash,
+              )}
+            <span className="lm-count">
+              {trash ? trash.length : entries.length}{" "}
+              {(trash ? trash.length : entries.length) === 1 ? "item" : "items"}
+            </span>
           </div>
-        </div>
+        </footer>
       </section>
       <AnimatePresence>
         {modal && (
@@ -1237,188 +1037,6 @@ type Environment = {
   control: (a: string, n?: number) => Promise<void>;
   transfers: Transfer[];
 };
-function Island({
-  settings,
-  change,
-  launch,
-  status,
-  control,
-  transfers,
-}: Environment) {
-  const [expanded, setExpanded] = useState(false),
-    [tab, setTab] = useState("music");
-  const active = transfers.find((t) => t.state === "running");
-  const toggle = (value: boolean) => {
-    setExpanded(value);
-    if (native) call("island_expand", { expanded: value }).catch(console.error);
-  };
-  return (
-    <div className="island-position">
-      <motion.section
-        className="island"
-        aria-label="Dynamic Island"
-        animate={{ width: expanded ? 460 : 310, height: expanded ? 300 : 46 }}
-        transition={settings.reducedMotion ? { duration: 0 } : islandTransition}
-      >
-        <button
-          className="island-summary"
-          aria-label={
-            expanded ? "Collapse Dynamic Island" : "Expand Dynamic Island"
-          }
-          aria-expanded={expanded}
-          onClick={() => toggle(!expanded)}
-        >
-          <span className="island-orb">
-            <MusicNotes weight="fill" />
-          </span>
-          <span>
-            {active
-              ? "Transferring files"
-              : status?.playing
-                ? status.title
-                : "Lumius"}
-            <small>
-              {active
-                ? `${Math.round((active.done / Math.max(1, active.total)) * 100)}%`
-                : status?.playing
-                  ? status.artist
-                  : "a space for everything"}
-            </small>
-          </span>
-          <span className={"wave " + (status?.playing ? "playing" : "")}>
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-        </button>
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              className="island-content"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-            >
-              <nav>
-                {["music", "controls", "apps"].map((t) => (
-                  <button
-                    key={t}
-                    className={tab === t ? "active" : ""}
-                    onClick={() => setTab(t)}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </nav>
-              {tab === "music" ? (
-                <>
-                  <div className="now-playing">
-                    <div className="album-art">
-                      <MusicNotes size={34} weight="duotone" />
-                    </div>
-                    <div>
-                      <b>{status?.title || "Connecting to player…"}</b>
-                      <small>
-                        {status?.artist || "Open Music to play a local track"}
-                      </small>
-                    </div>
-                    <button
-                      aria-label="Open Music"
-                      onClick={() => launch("music")}
-                    >
-                      <ArrowSquareOut />
-                    </button>
-                  </div>
-                  <div className="playback">
-                    <IconButton
-                      label="Previous track"
-                      onClick={() => control("previous")}
-                    >
-                      <SkipBack weight="fill" />
-                    </IconButton>
-                    <IconButton
-                      label={status?.playing ? "Pause" : "Play"}
-                      onClick={() => control("play-pause")}
-                    >
-                      {status?.playing ? (
-                        <Pause weight="fill" />
-                      ) : (
-                        <Play weight="fill" />
-                      )}
-                    </IconButton>
-                    <IconButton
-                      label="Next track"
-                      onClick={() => control("next")}
-                    >
-                      <SkipForward weight="fill" />
-                    </IconButton>
-                  </div>
-                </>
-              ) : tab === "controls" ? (
-                <div className="island-controls">
-                  <ControlSlider
-                    label="Volume"
-                    icon={<SpeakerHigh />}
-                    value={status?.volume}
-                    onCommit={(n) => control("volume", n)}
-                  />
-                  <ControlSlider
-                    label="Brightness"
-                    icon={<Sun />}
-                    value={status?.brightness}
-                    onCommit={(n) => control("brightness", n)}
-                  />
-                  <button onClick={() => launch("files")}>
-                    <Folder />
-                    Open Files
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <p className="island-hint">
-                    Drag to reorder your pinned apps
-                  </p>
-                  <Pinned settings={settings} change={change} launch={launch} />
-                </>
-              )}
-              {active ? (
-                <div className="transfer-widget">
-                  <span>{active.name}</span>
-                  <progress
-                    max={Math.max(1, active.total)}
-                    value={active.done}
-                  />
-                  <button onClick={() => call("cancel", { id: active.id })}>
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="island-files"
-                  onClick={() => launch("files")}
-                >
-                  <Folder />
-                  Your files, within reach
-                  <ArrowRight />
-                </button>
-              )}
-              {transfers
-                .filter((t) => t.state === "error")
-                .slice(-1)
-                .map((t) => (
-                  <p role="alert" className="transfer-error" key={t.id}>
-                    {t.error}
-                  </p>
-                ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.section>
-    </div>
-  );
-}
 function Pinned({
   settings,
   change,
@@ -1438,7 +1056,6 @@ function Pinned({
       className="pinned-apps"
     >
       {settings.pinned.map((id) => {
-        const Icon = appIcons[id] || Folder;
         return (
           <Reorder.Item
             as="button"
@@ -1459,26 +1076,13 @@ function Pinned({
             style={{ touchAction: "none" }}
             aria-label={`Open ${appNames[id]}`}
             title={appNames[id]}
-            className={"app-icon app-" + id}
+            className="lm-pin"
           >
-            <Icon weight="duotone" />
+            <GlassIcon app={appIcon[id]} size={40} finish={settings.iconFinish} />
           </Reorder.Item>
         );
       })}
     </Reorder.Group>
-  );
-}
-function Dock(env: Environment) {
-  return (
-    <div className="dock-position">
-      <nav className="dock glass" aria-label="Application dock">
-        <IconButton label="Search apps" onClick={() => env.launch("launcher")}>
-          <SquaresFour weight="fill" />
-        </IconButton>
-        <span className="dock-divider" />
-        <Pinned {...env} />
-      </nav>
-    </div>
   );
 }
 function ControlSlider({
@@ -1520,275 +1124,440 @@ function ControlSlider({
     </label>
   );
 }
+function Seg<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: [T, string][];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="lm-seg" role="radiogroup" aria-label={label}>
+      {options.map(([v, name]) => (
+        <button
+          key={String(v)}
+          role="radio"
+          aria-checked={value === v}
+          className={value === v ? "on" : ""}
+          onClick={() => onChange(v)}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+}
+function Switch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-label={label}
+      aria-checked={checked}
+      className={"lm-sw" + (checked ? " on" : "")}
+      onClick={() => onChange(!checked)}
+    >
+      <i />
+    </button>
+  );
+}
+function Line({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="lm-line">
+      <div>
+        <div className="lm-t">{title}</div>
+        <div className="lm-d">{detail}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+function LivePreview({ settings: s, night }: { settings: Settings; night: boolean }) {
+  const accent = accents[s.accent] ?? accents.lumen;
+  const level = glassLevel(s.glass);
+  return (
+    <div
+      className={"lm-preview" + (night ? " night" : "") + (s.light === "auto" ? " auto" : "")}
+      role="img"
+      aria-label="Live preview"
+      style={
+        {
+          "--accent": accent,
+          "--pv-glass": s.reducedTransparency ? "1" : String(level.alpha),
+          "--pv-blur": s.reducedTransparency ? "0px" : `${level.blur}px`,
+        } as CSSProperties
+      }
+    >
+      <span className="lm-pv-island">
+        <i />
+      </span>
+      <span className="lm-pv-cap">
+        <i />
+        <i />
+      </span>
+      <div className={"lm-pv-win" + (s.reducedMotion ? "" : " live")}>
+        <span className="lm-pv-side" />
+        <GlassIcon app="folder-documents" size={30} finish="lumen" />
+        <GlassIcon app="folder-pictures" size={30} finish="lumen" />
+        <GlassIcon app="folder-music" size={30} finish="lumen" />
+        <b>Open</b>
+      </div>
+      <div className="lm-pv-shelf">
+        {["lumius", "files", "browser", "music", "ask", "settings"].map((a) => (
+          <span key={a} style={{ transform: a === "music" ? `translateY(${-s.shelfLift / 2}px)` : undefined }}>
+            <GlassIcon app={a} size={26} finish={a === "lumius" ? "spectrum" : s.iconFinish} />
+          </span>
+        ))}
+      </div>
+      <small>Live preview</small>
+    </div>
+  );
+}
 function SettingsPanel(env: Environment) {
   const { settings: s, change, launch, status, control } = env;
-  const [page, setPage] = useState("appearance");
-  const categories = [
-    { id: "appearance", label: "Appearance", icon: Palette },
-    { id: "desktop", label: "Desktop & Island", icon: Desktop },
-    { id: "sound", label: "Sound & brightness", icon: SpeakerHigh },
-    { id: "network", label: "Wi-Fi & network", icon: WifiHigh },
-    { id: "bluetooth", label: "Bluetooth", icon: Bluetooth },
-    { id: "display", label: "Displays", icon: Monitor },
-    { id: "exa", label: "Web answers", icon: Sparkle },
-    { id: "about", label: "About Lumius", icon: Info },
+  const [page, setPage] = useState("look");
+  const [filter, setFilter] = useState("");
+  const groups: [string, { id: string; label: string; d: string }[]][] = [
+    [
+      "You",
+      [
+        { id: "account", label: "Account", d: P.account },
+        { id: "look", label: "Look and feel", d: P.look },
+        { id: "shelf", label: "Island and shelf", d: P.shelf },
+        { id: "wallpaper", label: "Wallpaper", d: P.wallpaper },
+      ],
+    ],
+    [
+      "Connections",
+      [
+        { id: "network", label: "Wi-Fi", d: P.wifi },
+        { id: "bluetooth", label: "Bluetooth", d: P.bluetooth },
+      ],
+    ],
+    [
+      "System",
+      [
+        { id: "sound", label: "Sound", d: P.sound },
+        { id: "display", label: "Displays", d: P.display },
+        { id: "energy", label: "Power and battery", d: P.power },
+        { id: "ask", label: "Ask and web answers", d: P.sparkle },
+        { id: "about", label: "About Lumius", d: P.about },
+      ],
+    ],
   ];
+  const all = groups.flatMap(([, items]) => items);
+  const current = all.find((i) => i.id === page) ?? all[1];
+  const night = isNight(s, new Date());
+  const external = (id: string, what: string, body: ReactNode) => (
+    <div className="lm-box">
+      <Line title={current.label} detail={body}>
+        <button className="lm-btn" onClick={() => launch(id)}>
+          Open {what}
+          <Glyph d={P.open} size={15} width={2} />
+        </button>
+      </Line>
+    </div>
+  );
   return (
-    <div className="app-body settings-body">
-      <aside className="settings-sidebar">
-        <div className="settings-profile">
-          <div className="logo-orb" />
-          <h2>Make it yours.</h2>
-          <p>Your Lumius, your way.</p>
+    <div className="lm-app lm-settings">
+      <nav className="lm-sidebar wide" aria-label="Settings sections" data-drag>
+        <div className="lm-side-head" data-drag>
+          <GlassIcon app="settings" size={30} />
+          <span>Settings</span>
         </div>
-        <nav>
-          {categories.map(({ id, label, icon: Icon }) => (
-            <button
-              className={id === page ? "selected" : ""}
-              key={id}
-              onClick={() => setPage(id)}
-            >
-              <Icon weight="duotone" />
-              {label}
-              <ArrowRight size={14} />
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <section className="settings-main">
-        <header className="settings-head">
-          <p className="eyebrow">A LITTLE MORE YOU</p>
-          <h1>{categories.find((c) => c.id === page)?.label}</h1>
-        </header>
-        {page === "appearance" ? (
-          <>
-            <p className="settings-intro">
-              A softer view of everything you do.
-            </p>
-            <div className="appearance-preview glass">
-              <div className="mini-island" />
-              <div className="mini-window glass">
-                <span />
-                <span />
-                <span />
+        <label className="lm-search lm-side-search">
+          <Glyph d={P.search} size={15} width={2} />
+          <input
+            aria-label="Search settings"
+            placeholder="Search, e.g. wallpaper"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </label>
+        {groups.map(([name, items]) => {
+          const shown = items.filter((i) =>
+            i.label.toLowerCase().includes(filter.trim().toLowerCase()),
+          );
+          return (
+            shown.length > 0 && (
+              <div key={name}>
+                <div className="lm-sec">{name}</div>
+                {shown.map((i) => (
+                  <button
+                    key={i.id}
+                    className={"lm-side lm-nav" + (i.id === current.id ? " on" : "")}
+                    aria-current={i.id === current.id ? "page" : undefined}
+                    onClick={() => setPage(i.id)}
+                  >
+                    <Glyph d={i.d} width={1.8} />
+                    {i.label}
+                  </button>
+                ))}
               </div>
-              <div className="mini-dock glass">
-                <Folder />
-                <MusicNotes />
-                <Gear />
+            )
+          );
+        })}
+      </nav>
+      <section className="lm-main lm-settings-main">
+        <header className="lm-settings-head" data-drag>
+          <h1 data-drag>{current.label}</h1>
+          <WindowControls />
+        </header>
+        <div className="lm-settings-scroll">
+          {current.id === "look" ? (
+            <>
+              <LivePreview settings={s} night={night} />
+              <div className="lm-cols">
+                <div className="lm-box">
+                  <Line title="Light" detail="Night also dims the aurora.">
+                    <Seg
+                      label="Light"
+                      value={s.light}
+                      options={[
+                        ["day", "Day"],
+                        ["night", "Night"],
+                        ["auto", "Auto"],
+                      ]}
+                      onChange={(light) => change({ ...s, light })}
+                    />
+                  </Line>
+                  <Line title="Accent" detail="Lumen · focus rims, buttons, island core">
+                    <div className="lm-accents" role="radiogroup" aria-label="Accent">
+                      {(Object.keys(accents) as Settings["accent"][]).map((a) => (
+                        <button
+                          key={a}
+                          role="radio"
+                          aria-checked={s.accent === a}
+                          aria-label={a[0].toUpperCase() + a.slice(1)}
+                          style={{ "--c": accents[a] } as CSSProperties}
+                          className={s.accent === a ? "on" : ""}
+                          onClick={() => change({ ...s, accent: a })}
+                        />
+                      ))}
+                    </div>
+                  </Line>
+                  <Line title="Glass" detail="How much wallpaper shows through.">
+                    <Seg
+                      label="Glass"
+                      value={s.reducedTransparency ? 100 : glassLevel(s.glass).value}
+                      options={[
+                        [25, "Thin"],
+                        [50, "Regular"],
+                        [75, "Thick"],
+                        [100, "Solid"],
+                      ]}
+                      onChange={(v) =>
+                        change(
+                          v === 100
+                            ? { ...s, reducedTransparency: true }
+                            : { ...s, glass: v, reducedTransparency: false },
+                        )
+                      }
+                    />
+                  </Line>
+                  <Line title="App icons" detail="Spectrum colors, or Lumen blue everywhere.">
+                    <Seg
+                      label="App icons"
+                      value={s.iconFinish}
+                      options={[
+                        ["spectrum", "Spectrum"],
+                        ["lumen", "Lumen"],
+                      ]}
+                      onChange={(iconFinish) => change({ ...s, iconFinish })}
+                    />
+                  </Line>
+                </div>
+                <div className="lm-box">
+                  <Line title="Leaving windows" detail="How a minimized window travels to the shelf.">
+                    <Seg
+                      label="Leaving windows"
+                      value={s.leaving}
+                      options={[
+                        ["fold", "Fold to light"],
+                        ["fade", "Fade"],
+                      ]}
+                      onChange={(leaving) => change({ ...s, leaving })}
+                    />
+                  </Line>
+                  <Line
+                    title="Shelf lift"
+                    detail={
+                      s.shelfLift
+                        ? `Icons rise ${s.shelfLift}px over a pool of their own color.`
+                        : "Off: icons stay put, only the light pool shows."
+                    }
+                  >
+                    <input
+                      aria-label="Shelf lift"
+                      type="range"
+                      min="0"
+                      max="16"
+                      value={s.shelfLift}
+                      onChange={(e) => change({ ...s, shelfLift: +e.target.value })}
+                    />
+                  </Line>
+                  <Line title="Moving aurora" detail="Slow light drifting behind the wallpaper.">
+                    <Switch
+                      label="Moving aurora"
+                      checked={s.aurora}
+                      onChange={(aurora) => change({ ...s, aurora })}
+                    />
+                  </Line>
+                  <Line title="Reduce motion" detail="Swap folds, blooms and bounces for short fades.">
+                    <Switch
+                      label="Reduce motion"
+                      checked={s.reducedMotion}
+                      onChange={(reducedMotion) => change({ ...s, reducedMotion })}
+                    />
+                  </Line>
+                </div>
+              </div>
+            </>
+          ) : current.id === "shelf" ? (
+            <div className="lm-cols">
+              <div className="lm-box">
+                <Line title="Pinned apps" detail="Drag to reorder. Up to six apps live on the shelf.">
+                  <Pinned {...env} />
+                </Line>
+                <div className="lm-pins">
+                  {Object.keys(appNames)
+                    .filter((id) => id !== "installer" || status?.live)
+                    .map((id) => (
+                      <label key={id}>
+                        <input
+                          type="checkbox"
+                          checked={s.pinned.includes(id)}
+                          disabled={!s.pinned.includes(id) && s.pinned.length >= 6}
+                          onChange={(e) =>
+                            change({
+                              ...s,
+                              pinned: e.target.checked
+                                ? [...s.pinned, id]
+                                : s.pinned.filter((p) => p !== id),
+                            })
+                          }
+                        />
+                        <GlassIcon app={appIcon[id]} size={22} finish={s.iconFinish} />
+                        {appNames[id]}
+                      </label>
+                    ))}
+                </div>
+              </div>
+              <div className="lm-box">
+                <Line
+                  title="Dynamic Island"
+                  detail="Attached to the top edge. Music, transfers and controls share one space; click it or the sound icon to open."
+                />
+                <Line
+                  title="Reserved edges"
+                  detail="Windows stay clear of the bar and the shelf. Fullscreen apps hide them until you touch the edge."
+                />
               </div>
             </div>
-            <h2>Choose your atmosphere</h2>
-            <div className="wallpaper-options">
+          ) : current.id === "wallpaper" ? (
+            <div className="lm-walls">
               {["aurora", "dusk", "ocean"].map((w) => (
                 <button
                   key={w}
-                  className={
-                    "theme-" +
-                    w +
-                    " wallpaper-swatch " +
-                    (s.wallpaper === w ? "chosen" : "")
-                  }
+                  className={"theme-" + w + " lm-wall" + (s.wallpaper === w ? " on" : "")}
                   aria-label={`Use ${w} wallpaper`}
                   aria-pressed={s.wallpaper === w}
                   onClick={() => change({ ...s, wallpaper: w })}
                 >
-                  <span>{w}</span>
-                  {s.wallpaper === w && <Check weight="bold" />}
+                  <span>{w[0].toUpperCase() + w.slice(1)}</span>
+                  {s.wallpaper === w && <Glyph d={P.check} size={16} width={2.4} />}
                 </button>
               ))}
             </div>
-            <div className="settings-group glass">
-              <label className="control-slider">
-                <span>
-                  <Sun />
-                  Glass intensity<small>{s.glass}%</small>
-                </span>
-                <input
-                  aria-label="Glass intensity"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={s.glass}
-                  onChange={(e) => change({ ...s, glass: +e.target.value })}
+          ) : current.id === "sound" ? (
+            <div className="lm-box lm-pad">
+              <ControlSlider
+                label="Volume"
+                icon={<Glyph d={P.sound} />}
+                value={status?.volume}
+                onCommit={(n) => control("volume", n)}
+              />
+              <p className="lm-d">
+                Volume follows the default output of this computer.
+              </p>
+            </div>
+          ) : current.id === "display" ? (
+            <>
+              <div className="lm-box lm-pad">
+                <ControlSlider
+                  label="Brightness"
+                  icon={<Glyph d={P.display} />}
+                  value={status?.brightness}
+                  onCommit={(n) => control("brightness", n)}
                 />
-              </label>
-              <Toggle
-                title="Reduce transparency"
-                detail="Use solid surfaces for easier reading"
-                checked={s.reducedTransparency}
-                onChange={(v) => change({ ...s, reducedTransparency: v })}
-              />
-              <Toggle
-                title="Reduce motion"
-                detail="Keep transitions simple and comfortable"
-                checked={s.reducedMotion}
-                onChange={(v) => change({ ...s, reducedMotion: v })}
-              />
-            </div>
-          </>
-        ) : page === "desktop" ? (
-          <>
-            <p className="settings-intro">
-              Your favorite things. Always within reach.
-            </p>
-            <div className="settings-group glass">
-              <h2>Pinned apps</h2>
-              <p>
-                Drag icons to rearrange. Changes appear in the island and dock.
-              </p>
-              <Pinned {...env} />
-              <div className="pin-options">
-                {Object.keys(appNames)
-                  .filter((id) => id !== "installer" || status?.live)
-                  .map((id) => (
-                    <label key={id}>
-                      <input
-                        type="checkbox"
-                        checked={s.pinned.includes(id)}
-                        onChange={(e) =>
-                          change({
-                            ...s,
-                            pinned: e.target.checked
-                              ? [...s.pinned, id]
-                              : s.pinned.filter((p) => p !== id),
-                          })
-                        }
-                      />
-                      {appNames[id]}
-                    </label>
-                  ))}
+                <p className="lm-d">Brightness appears when the screen has a backlight Lumius can control.</p>
               </div>
-            </div>
-            <div className="settings-group glass">
-              <h2>Dynamic Island</h2>
-              <p>
-                Attached to the top edge. Music, controls and file transfers
-                share one space.
+              {external("display", "display settings", "Resolution, scale and arrangement.")}
+            </>
+          ) : current.id === "energy" ? (
+            <>
+              <div className="lm-box">
+                <Line
+                  title="Battery"
+                  detail={
+                    status?.battery != null
+                      ? `${status.battery}% charged`
+                      : "No battery found; this computer runs on mains power."
+                  }
+                />
+              </div>
+              {external("energy", "power settings", "Sleep, screen dimming and power profiles.")}
+            </>
+          ) : current.id === "network" ? (
+            external("network", "Wi-Fi settings", "Join networks and manage connections.")
+          ) : current.id === "bluetooth" ? (
+            external("bluetooth", "Bluetooth settings", "Pair headphones, mice and keyboards.")
+          ) : current.id === "account" ? (
+            external("users", "account settings", "Your name, picture and password.")
+          ) : current.id === "ask" ? (
+            <ExaSettings launch={launch} />
+          ) : (
+            <div className="lm-box lm-about">
+              <GlassIcon app="lumius" size={84} />
+              <h2>Lumius</h2>
+              <p className="lm-d">Light, behind glass.</p>
+              <dl>
+                <dt>Version</dt>
+                <dd>1.0 · Debian 13 base</dd>
+                <dt>Desktop</dt>
+                <dd>KDE Plasma · KWin</dd>
+                <dt>Session</dt>
+                <dd>{native ? status?.platform || "Native" : "Browser demo · sample files"}</dd>
+                <dt>License</dt>
+                <dd>GPL-3.0-only · upstream licenses retained</dd>
+              </dl>
+              <p className="lm-d">
+                Built with open-source software. Fonts: Space Grotesk and DM Sans (OFL).
               </p>
-              <p>
-                Normal windows keep a reserved top area. Fullscreen uses an edge
-                reveal.
-              </p>
             </div>
-          </>
-        ) : page === "sound" ? (
-          <div className="settings-group glass">
-            <ControlSlider
-              label="Volume"
-              icon={<SpeakerHigh />}
-              value={status?.volume}
-              onCommit={(n) => control("volume", n)}
-            />
-            <ControlSlider
-              label="Brightness"
-              icon={<Sun />}
-              value={status?.brightness}
-              onCommit={(n) => control("brightness", n)}
-            />
-            <p>
-              Controls appear when the Linux session exposes supported audio and
-              backlight devices.
-            </p>
-          </div>
-        ) : page === "exa" ? (
-          <ExaSettings launch={launch} />
-        ) : page === "about" ? (
-          <div className="about-panel glass">
-            <div className="logo-orb" />
-            <h2>Lumius</h2>
-            <p>A space for everything.</p>
-            <dl>
-              <dt>Edition</dt>
-              <dd>Developer preview 0.1.0</dd>
-              <dt>Foundation</dt>
-              <dd>Debian 13 · KDE Plasma</dd>
-              <dt>Session</dt>
-              <dd>
-                {native
-                  ? status?.platform || "Native"
-                  : "Browser demo · sample files"}
-              </dd>
-              <dt>License</dt>
-              <dd>GPL-3.0-only · upstream licenses retained</dd>
-            </dl>
-            <p>
-              Built with open-source software. Island spring animation adapted
-              from Nectar / Bloom.
-            </p>
-          </div>
-        ) : (
-          <div className="settings-group glass">
-            <h2>{categories.find((c) => c.id === page)?.label}</h2>
-            <p>
-              Manage your actual devices using the native system configuration.
-            </p>
-            <button className="primary" onClick={() => launch(page)}>
-              Open {categories.find((c) => c.id === page)?.label} settings
-              <ArrowSquareOut />
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </section>
     </div>
-  );
-}
-
-function Menubar({
-  launch,
-  status,
-  now,
-}: {
-  launch: (id: string) => Promise<void>;
-  status: Status | null;
-  now: Date;
-}) {
-  return (
-    <header className="menubar">
-      <div>
-        <span className="brand-mark">◒</span>
-        <b>Lumius</b>
-        <button onClick={() => launch("files")}>Files</button>
-        <button onClick={() => launch("settings")}>Settings</button>
-        <button onClick={() => launch("ask")}>
-          <Sparkle weight="fill" className="menubar-ask" />
-          Ask
-        </button>
-      </div>
-      <div>
-        <button aria-label="Network settings" onClick={() => launch("network")}>
-          <WifiHigh />
-        </button>
-        <button aria-label="Sound settings" onClick={() => launch("settings")}>
-          <SpeakerHigh />
-        </button>
-        {status?.battery != null && (
-          <>
-            <BatteryHigh />
-            {status.battery}%
-          </>
-        )}
-        <span>
-          {now.toLocaleDateString("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
-        </span>
-        <span>
-          {now.toLocaleTimeString("en-US", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </span>
-        <button aria-label="Lock screen" onClick={() => launch("lock")}>
-          <Lock />
-        </button>
-        <button aria-label="Power options" onClick={() => launch("power")}>
-          <Power />
-        </button>
-      </div>
-    </header>
   );
 }
 

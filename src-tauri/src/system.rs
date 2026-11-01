@@ -74,6 +74,23 @@ fn validate_settings(v: &Value) -> Result<(), String> {
     {
         return Err("Invalid settings".into());
     }
+    // Look and feel options from Lumius 1.0; older settings files may not have them.
+    let optional = |k: &str, ok: &dyn Fn(&Value) -> bool| v.get(k).is_none_or(ok);
+    let one_of = |list: &'static [&'static str]| {
+        move |x: &Value| x.as_str().is_some_and(|s| list.contains(&s))
+    };
+    if !optional("light", &one_of(&["day", "night", "auto"]))
+        || !optional(
+            "accent",
+            &one_of(&["lumen", "violet", "rose", "amber", "mint", "graphite"]),
+        )
+        || !optional("iconFinish", &one_of(&["spectrum", "lumen"]))
+        || !optional("leaving", &one_of(&["fold", "fade"]))
+        || !optional("shelfLift", &|x| x.as_u64().is_some_and(|n| n <= 16))
+        || !optional("aurora", &Value::is_boolean)
+    {
+        return Err("Invalid look and feel settings".into());
+    }
     let pins = v["pinned"].as_array().ok_or("Invalid pinned apps")?;
     let unique: std::collections::HashSet<_> = pins.iter().filter_map(Value::as_str).collect();
     if pins.len() > 6
@@ -359,6 +376,18 @@ pub fn launch(id: &str) -> Result<Value, String> {
             ],
         ),
         "lock" => spawn("loginctl", &["lock-session"]),
+        // The bar's three workspace pills map to KWin virtual desktops 1-3.
+        "workspace-1" | "workspace-2" | "workspace-3" => spawn(
+            "dbus-send",
+            &[
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.KWin",
+                "/KWin",
+                "org.kde.KWin.setCurrentDesktop",
+                &format!("int32:{}", &id[10..]),
+            ],
+        ),
         "installer" => {
             if !std::path::Path::new("/run/live/medium/live/filesystem.squashfs").exists() {
                 return Err("The installer is available from the live USB session.".into());
@@ -368,6 +397,8 @@ pub fn launch(id: &str) -> Result<Value, String> {
         "network" => spawn("systemsettings", &["kcm_networkmanagement"]),
         "bluetooth" => spawn("systemsettings", &["kcm_bluetooth"]),
         "display" => spawn("systemsettings", &["kcm_kscreen"]),
+        "energy" => spawn("systemsettings", &["kcm_powerdevilprofilesconfig"]),
+        "users" => spawn("systemsettings", &["kcm_users"]),
         _ => Err("Unknown application".into()),
     }
 }

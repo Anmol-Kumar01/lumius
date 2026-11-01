@@ -3,3 +3,10 @@ Enabled=true
 
 [Plugins]
 blurEnabled=true
+
+[Desktops]
+Number=3
+Rows=1
+Name_1=Studio
+Name_2=Web
+Name_3=Music

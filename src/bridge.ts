@@ -2,7 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Answer,
   Entry,
+  IntelAdviseResult,
+  IntelAssistResult,
+  IntelPolicy,
+  IntelSnapshot,
+  IntelSnapshotResult,
+  IntelStatus,
   Listing,
+  ProviderStatus,
   Settings,
   Status,
   TrashItem,
@@ -10,11 +17,17 @@ import type {
 } from "./types";
 export const native = "__TAURI_INTERNALS__" in window;
 export const defaults: Settings = {
-  glass: 65,
+  glass: 50,
   reducedMotion: false,
   reducedTransparency: false,
   wallpaper: "aurora",
-  pinned: ["files", "browser", "music", "terminal", "settings"],
+  pinned: ["files", "browser", "music", "ask", "terminal", "settings"],
+  light: "day",
+  accent: "lumen",
+  iconFinish: "spectrum",
+  leaving: "fold",
+  shelfLift: 8,
+  aurora: true,
 };
 
 // Browser mode is a clearly labelled demo. It works on an in-memory set of
@@ -161,6 +174,70 @@ const appLabels: Record<string, string> = {
   display: "Display settings",
   installer: "The installer",
 };
+
+// System intelligence: fixed sample telemetry marked `demo: true`. Nothing is
+// measured from the visitor's computer, and no provider is ever called or keyed.
+const demoSnapshot = (): IntelSnapshot => ({
+  demo: true,
+  taken_at: stamp(),
+  mem_total_kb: 16264060,
+  mem_available_kb: 9758436,
+  mem_available_pct: 60,
+  swap_total_kb: 2097148,
+  swap_free_kb: 2097148,
+  cpu_busy_pct: 14.2,
+  cpu_cores: 8,
+  psi_cpu_some_avg10: 1.2,
+  psi_memory_some_avg10: 0,
+  psi_io_some_avg10: 0.4,
+  load_1: 0.84,
+  load_5: 0.71,
+  load_15: 0.65,
+  uptime_secs: 7380,
+  process_count: 287,
+  disk_root_total_bytes: 256060514304,
+  disk_root_available_bytes: 141733920768,
+  disk_root_used_pct: 41.7,
+  battery_pct: 76,
+  battery_status: "discharging",
+});
+const demoPolicy = (): IntelPolicy => ({
+  policy_id: "balanced",
+  label: "Balanced",
+  pressure: "low",
+  reasons: [
+    "Browser demo: sample telemetry, not measured from this computer.",
+    "60.0% of memory available (9.3 of 15.5 GiB): low",
+    "Memory stalls (PSI some avg10) at 0.00%: low",
+    "CPU 14.2% busy: low",
+    "CPU stalls (PSI some avg10) at 1.20%: low",
+    "Battery at 76%, discharging",
+    "Pressure is low with no battery constraint, so Balanced fits.",
+  ],
+});
+const demoProviders: ProviderStatus[] = [
+  {
+    id: "cerebras",
+    label: "Cerebras",
+    model: "llama-3.3-70b",
+    configured: false,
+    state: "unconfigured",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    model: "gpt-4.1-mini",
+    configured: false,
+    state: "unconfigured",
+  },
+  {
+    id: "exa",
+    label: "Exa",
+    model: null,
+    configured: false,
+    state: "unconfigured",
+  },
+];
 
 async function demo(
   command: string,
@@ -418,6 +495,41 @@ async function demo(
       throw new Error(
         "In the browser demo the key lives in .env.local on the dev server.",
       );
+    case "intel_snapshot":
+      return {
+        snapshot: demoSnapshot(),
+        policy: demoPolicy(),
+      } satisfies IntelSnapshotResult;
+    case "intel_status":
+      return {
+        providers: demoProviders.map((p) => ({ ...p })),
+        demo: true,
+      } satisfies IntelStatus;
+    case "intel_key_set":
+      throw new Error(
+        "API keys are saved in Settings on the installed Lumius OS. The browser demo never stores keys.",
+      );
+    case "intel_advise":
+      return {
+        local: demoPolicy(),
+        advice: null,
+        accepted: false,
+        state: "unconfigured",
+        error:
+          "Policy advice runs on the installed Lumius OS. Add a Cerebras API key in Settings there.",
+      } satisfies IntelAdviseResult;
+    case "intel_assist": {
+      const query = s("query").trim();
+      if (!query) throw new Error("Type a question first.");
+      if ([...query].length > 2000)
+        throw new Error("Questions can be up to 2000 characters.");
+      return {
+        answer: null,
+        state: "unconfigured",
+        error:
+          "The assistant runs on the installed Lumius OS. Add an OpenAI API key in Settings there.",
+      } satisfies IntelAssistResult;
+    }
     case "window_region":
     case "island_expand":
       return null;

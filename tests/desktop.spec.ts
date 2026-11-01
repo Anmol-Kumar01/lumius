@@ -1,13 +1,17 @@
 import { test, expect } from "@playwright/test";
+const menu = async (page: import("@playwright/test").Page, item: string) => {
+  await page.getByRole("button", { name: "Files menu" }).click();
+  await page.getByRole("menuitem", { name: item }).click();
+};
 test("file tabs retain independent locations", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
-  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await menu(page, "New tab");
   await page.getByRole("listitem").filter({ hasText: "Documents" }).dblclick();
   await expect(page.getByRole("heading", { name: /^Documents/ })).toBeVisible();
-  await page.locator(".file-tabs > button").nth(0).click();
-  await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
-  await page.locator(".file-tabs > button").nth(1).click();
+  await page.locator(".lm-tabs > button").nth(0).click();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await page.locator(".lm-tabs > button").nth(1).click();
   await expect(page.getByRole("heading", { name: /^Documents/ })).toBeVisible();
 });
 test("desktop preview is honest, Files navigation and layout work", async ({
@@ -21,52 +25,54 @@ test("desktop preview is honest, Files navigation and layout work", async ({
       "Demo mode · sample files only, nothing on this computer changes",
     ),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
-  await page.getByRole("button", { name: "Grid view", exact: true }).click();
-  await expect(page.locator(".file-entries")).toHaveClass(/grid/);
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await expect(page.locator(".lm-entries")).toHaveClass(/grid/);
+  await menu(page, "List view");
+  await expect(page.locator(".lm-entries")).toHaveClass(/list/);
   await page.getByRole("listitem").filter({ hasText: "Documents" }).dblclick();
   await expect(page.getByRole("heading", { name: /^Documents/ })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page.locator(".file-tabs .current")).toContainText("Home");
-  await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   expect(errors).toEqual([]);
   await page.screenshot({
     path: "artifacts/desktop-preview.png",
     fullPage: true,
   });
 });
-test("island expands, controls work, apps open Settings", async ({ page }) => {
+test("island expands, controls work, shelf opens Settings", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Expand Dynamic Island" }).click();
-  await page.getByRole("button", { name: "controls", exact: true }).click();
+  await page.getByRole("tab", { name: "Controls", exact: true }).click();
   await expect(
     page.getByRole("slider", { name: "Volume", exact: true }),
   ).toBeEnabled();
-  await page.getByRole("button", { name: "apps", exact: true }).click();
-  await page
-    .locator(".island")
-    .getByRole("button", { name: "Open Settings" })
-    .click();
+  await page.getByRole("button", { name: "Collapse Dynamic Island" }).click();
+  await page.getByRole("button", { name: "Sound and brightness" }).click();
+  await expect(page.getByRole("slider", { name: "Brightness" })).toBeVisible();
+  await page.getByRole("button", { name: "Open Settings" }).click();
   await expect(
-    page.getByRole("heading", { name: "Appearance", exact: true }),
+    page.getByRole("heading", { name: "Look and feel", exact: true }),
   ).toBeVisible();
 });
 test("Settings persist, wallpaper and accessibility settings update", async ({
   page,
 }) => {
   await page.goto("/?view=settings");
-  await page.getByRole("button", { name: "Use ocean wallpaper" }).click();
   await page
     .getByRole("switch", { name: "Reduce motion", exact: true })
-    .check();
-  await page
-    .getByRole("switch", { name: "Reduce transparency", exact: true })
-    .check();
+    .click();
+  await page.getByRole("radio", { name: "Solid", exact: true }).click();
+  await page.getByRole("radio", { name: "Night", exact: true }).click();
+  await page.getByRole("radio", { name: "Violet", exact: true }).click();
+  await page.getByRole("button", { name: "Wallpaper", exact: true }).click();
+  await page.getByRole("button", { name: "Use ocean wallpaper" }).click();
   await page.reload();
   await expect(
     page.getByRole("switch", { name: "Reduce motion", exact: true }),
   ).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Violet" })).toBeChecked();
   await expect(page.locator(".lumius")).toHaveClass(/solid/);
+  await expect(page.locator(".lumius")).toHaveClass(/night/);
   await expect(page.locator(".lumius")).toHaveClass(/theme-ocean/);
   await page.screenshot({
     path: "artifacts/settings-preview.png",
@@ -77,11 +83,11 @@ test("demo file operations work end to end", async ({ page }) => {
   await page.goto("/");
   const row = (name: string) =>
     page.getByRole("listitem").filter({ hasText: name });
-  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await menu(page, "New folder");
   await page.getByRole("textbox", { name: "Folder or file name" }).fill("Test");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(row("Test")).toHaveCount(1);
-  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await menu(page, "New folder");
   await page.getByRole("textbox", { name: "Folder or file name" }).fill("Test");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("already exists");
@@ -99,7 +105,7 @@ test("demo file operations work end to end", async ({ page }) => {
     .last()
     .click();
   await expect(row("Demo")).toHaveCount(0);
-  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await page.locator(".lm-sidebar").getByRole("button", { name: "Trash", exact: true }).click();
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await page.getByRole("button", { name: "Home", exact: true }).first().click();
   await expect(row("Demo")).toHaveCount(1);
@@ -123,7 +129,7 @@ test("music plays from Files and the island controls it", async ({ page }) => {
     .filter({ hasText: "Lumius Aurora.wav" })
     .dblclick();
   await page.getByRole("button", { name: "Expand Dynamic Island" }).click();
-  await expect(page.locator(".now-playing b")).toHaveText("Lumius Aurora");
+  await expect(page.locator(".lm-row-text b")).toHaveText("Lumius Aurora");
   await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
@@ -131,7 +137,7 @@ test("music plays from Files and the island controls it", async ({ page }) => {
 test("compact desktop has no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "My files" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod files;
+mod intelligence;
 mod system;
 #[cfg(test)]
 mod tests;
@@ -11,6 +12,8 @@ use std::{
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+const ISLAND_CLOSED: (f64, f64) = (290.0, 64.0);
+const ISLAND_OPEN: (f64, f64) = (530.0, 250.0);
 #[derive(Default)]
 pub struct Shared {
     transfers: Mutex<HashMap<String, Value>>,
@@ -102,6 +105,11 @@ fn dispatch(app: tauri::AppHandle, state: Arc<Shared>, c: &str, a: Value) -> Res
         "ask" => system::ask(field(&a, "query")?),
         "exa_key_status" => system::exa_key_status(),
         "exa_key_set" => system::exa_key_set(field(&a, "key")?),
+        "intel_snapshot" => intelligence::snapshot_rpc(),
+        "intel_status" => intelligence::status(),
+        "intel_key_set" => intelligence::key_set(field(&a, "provider")?, field(&a, "key")?),
+        "intel_advise" => intelligence::advise(),
+        "intel_assist" => intelligence::assist(field(&a, "query")?),
         "launch" => {
             let id = field(&a, "id")?;
             if ["files", "settings", "ask"].contains(&id) {
@@ -111,27 +119,25 @@ fn dispatch(app: tauri::AppHandle, state: Arc<Shared>, c: &str, a: Value) -> Res
                 system::launch(id)
             }
         }
+        "windows" => x11::windows(),
+        "window_activate" => x11::activate(
+            a["id"]
+                .as_u64()
+                .and_then(|id| u32::try_from(id).ok())
+                .ok_or("Invalid window")?,
+        ),
         "island_expand" => {
+            // The window leaves room for the island's shadow; the island itself is
+            // 230x38 closed and 470x196 open (style.css).
+            let (width, height) = if a["expanded"].as_bool().unwrap_or(false) {
+                ISLAND_OPEN
+            } else {
+                ISLAND_CLOSED
+            };
             if let Some(w) = app.get_webview_window("island") {
-                w.set_size(tauri::LogicalSize::new(
-                    if a["expanded"].as_bool().unwrap_or(false) {
-                        460.0
-                    } else {
-                        310.0
-                    },
-                    if a["expanded"].as_bool().unwrap_or(false) {
-                        300.0
-                    } else {
-                        46.0
-                    },
-                ))
-                .map_err(|e| e.to_string())?;
+                w.set_size(tauri::LogicalSize::new(width, height))
+                    .map_err(|e| e.to_string())?;
                 if let Some(m) = w.primary_monitor().map_err(|e| e.to_string())? {
-                    let width = if a["expanded"].as_bool().unwrap_or(false) {
-                        460.0
-                    } else {
-                        310.0
-                    };
                     w.set_position(tauri::LogicalPosition::new(
                         m.position().x as f64 / m.scale_factor()
                             + (m.size().width as f64 / m.scale_factor() - width) / 2.0,
@@ -192,11 +198,13 @@ fn main() {
                     main.close()?;
                 }
                 for (id, width, height) in [
-                    ("bar", 1920.0, 36.0),
-                    ("island", 310.0, 46.0),
-                    ("dock", 450.0, 82.0),
+                    ("bar", 1920.0, x11::BAR),
+                    ("island", ISLAND_CLOSED.0, ISLAND_CLOSED.1),
+                    // Full width so the shelf can grow with window chips; tooltips and
+                    // the hover lift need headroom above the 78px shelf.
+                    ("dock", 1920.0, x11::SHELF + 56.0),
                 ] {
-                    let width = if id == "bar" {
+                    let width = if id != "island" {
                         monitor
                             .as_ref()
                             .map(|m| m.size().width as f64 / m.scale_factor())
@@ -226,7 +234,7 @@ fn main() {
                     .build()?;
                     if let Some(m) = w.primary_monitor()? {
                         let scale = m.scale_factor();
-                        let width = if id == "bar" {
+                        let width = if id != "island" {
                             m.size().width as f64 / scale
                         } else {
                             width
