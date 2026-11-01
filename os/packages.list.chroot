@@ -31,6 +31,12 @@ plasma-nm
 bluedevil
 vlc
 firefox-esr
+chromium
+plasma-discover
+plasma-discover-backend-flatpak
+flatpak
+kde-spectacle
+dbus-bin
 konsole
 fonts-noto-core
 zip

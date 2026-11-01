@@ -55,6 +55,8 @@ import {
   Desktop,
   FloppyDisk,
   Eye,
+  Storefront,
+  Lock,
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -77,6 +79,7 @@ const appIcons: Record<string, typeof Folder> = {
   music: MusicNotes,
   browser: Globe,
   terminal: Terminal,
+  store: Storefront,
   installer: DownloadSimple,
 };
 const appNames: Record<string, string> = {
@@ -85,6 +88,7 @@ const appNames: Record<string, string> = {
   music: "Music",
   browser: "Browser",
   terminal: "Terminal",
+  store: "Software",
   installer: "Install Lumius",
 };
 const size = (n: number) =>
@@ -684,339 +688,343 @@ function Files({
         </div>
       </aside>
       <section className="files-main">
-        <div className="file-toolbar">
-          <div>
-            <IconButton
-              label="Back"
-              disabled={historyIndex <= 0}
-              onClick={() => {
-                const i = historyIndex - 1;
-                setHistoryIndex(i);
-                setTabs((ts) =>
-                  ts.map((p, j) => (j === activeTab ? history[i] : p)),
-                );
-                load(history[i]);
-              }}
-            >
-              <ArrowLeft />
-            </IconButton>
-            <IconButton
-              label="Forward"
-              disabled={historyIndex >= history.length - 1}
-              onClick={() => {
-                const i = historyIndex + 1;
-                setHistoryIndex(i);
-                setTabs((ts) =>
-                  ts.map((p, j) => (j === activeTab ? history[i] : p)),
-                );
-                load(history[i]);
-              }}
-            >
-              <ArrowRight />
-            </IconButton>
-            <IconButton
-              label="Parent folder"
-              disabled={!path || path === "/"}
-              onClick={() =>
-                navigate(path.slice(0, path.lastIndexOf("/")) || "/")
-              }
-            >
-              <ArrowUp />
-            </IconButton>
-            <span className="toolbar-divider" />
-            <span className="breadcrumb">
-              <House size={16} />
-              <span>
-                {trash
-                  ? "Trash"
-                  : path === home
-                    ? "Home"
-                    : path.split("/").filter(Boolean).slice(-2).join(" / ")}
-              </span>
-            </span>
-          </div>
-          <form
-            className="search glass"
-            onSubmit={(e) => {
-              e.preventDefault();
-              search();
-            }}
-          >
-            <MagnifyingGlass />
-            <input
-              aria-label="Search files"
-              placeholder={
-                global ? "Search indexed home…" : "Search this folder…"
-              }
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <kbd>↵</kbd>
-          </form>
-        </div>
-        <div className="file-tabs">
-          {tabs.map((t, i) => (
-            <button
-              key={i}
-              className={activeTab === i ? "current" : ""}
-              onClick={() => {
-                setActiveTab(i);
-                setHistory([t]);
-                setHistoryIndex(0);
-                setQuery("");
-                setGlobal(false);
-                load(t);
-              }}
-            >
-              <Folder size={15} />
-              {t === home ? "Home" : t.split("/").pop() || "Disk"}
-              {tabs.length > 1 && (
-                <span
-                  role="button"
-                  aria-label={`Close tab ${i + 1}`}
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(i);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      closeTab(i);
-                    }
-                  }}
-                >
-                  <X size={12} />
-                </span>
-              )}
-            </button>
-          ))}
-          <IconButton
-            label="New tab"
-            onClick={() => {
-              setActiveTab(tabs.length);
-              setTabs((t) => [...t, path]);
-              setHistory([path]);
-              setHistoryIndex(0);
-            }}
-          >
-            <Plus />
-          </IconButton>
-        </div>
         <div className="file-scroll">
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">YOUR SPACE, BEAUTIFULLY ORGANIZED</p>
-              <h1>
-                {trash
-                  ? "Trash"
-                  : path === home
-                    ? "My files"
-                    : path.split("/").pop() || "Lumius disk"}
-                <span className="count-pill">
-                  {trash ? trash.length : entries.length}
-                </span>
-              </h1>
-            </div>
-            <div>
-              <IconButton label="Refresh" onClick={() => load(path)}>
-                <ArrowClockwise />
-              </IconButton>
-              <div className="segmented">
+          <div className="files-chrome">
+            <div className="file-toolbar">
+              <div>
                 <IconButton
-                  label="Grid view"
-                  active={layout === "grid"}
-                  onClick={() => setLayout("grid")}
+                  label="Back"
+                  disabled={historyIndex <= 0}
+                  onClick={() => {
+                    const i = historyIndex - 1;
+                    setHistoryIndex(i);
+                    setTabs((ts) =>
+                      ts.map((p, j) => (j === activeTab ? history[i] : p)),
+                    );
+                    load(history[i]);
+                  }}
                 >
-                  <SquaresFour />
+                  <ArrowLeft />
                 </IconButton>
                 <IconButton
-                  label="List view"
-                  active={layout === "list"}
-                  onClick={() => setLayout("list")}
+                  label="Forward"
+                  disabled={historyIndex >= history.length - 1}
+                  onClick={() => {
+                    const i = historyIndex + 1;
+                    setHistoryIndex(i);
+                    setTabs((ts) =>
+                      ts.map((p, j) => (j === activeTab ? history[i] : p)),
+                    );
+                    load(history[i]);
+                  }}
                 >
-                  <List />
+                  <ArrowRight />
                 </IconButton>
-              </div>
-            </div>
-          </div>
-          {!trash && path === home && !query && (
-            <>
-              <div className="subheading">
-                <h2>Quick access</h2>
-                <span>Everything, a little closer.</span>
-              </div>
-              <div className="quick-access">
-                {places.slice(2, 6).map(({ name, folder, icon: Icon }, i) => (
-                  <button
-                    className={"quick-card card-" + i}
-                    key={name}
-                    onClick={() => navigate(`${home}/${folder}`)}
-                  >
-                    <div>
-                      <Icon weight="duotone" />
-                      <ArrowSquareOut size={16} />
-                    </div>
-                    <b>{name}</b>
-                    <small>
-                      Open folder
-                      <ArrowRight size={12} />
-                    </small>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          <div className="subheading files-actions">
-            <h2>{trash ? "Recently deleted" : "All files"}</h2>
-            <div>
-              <label className="scope-check">
-                <input
-                  type="checkbox"
-                  checked={global}
-                  onChange={(e) => setGlobal(e.target.checked)}
-                />
-                Indexed search
-              </label>
-              {global && (
-                <button onClick={buildIndex} disabled={busy}>
-                  Rebuild index
-                </button>
-              )}
-              <select
-                aria-label="Sort files"
-                value={sort}
-                onChange={(e) => setSort(e.target.value)}
-              >
-                <option value="name">Name</option>
-                <option value="modified">Modified</option>
-                <option value="size">Size</option>
-              </select>
-            </div>
-          </div>
-          {listing.warning && !trash && (
-            <p className="inline-note">{listing.warning}</p>
-          )}
-          {error && (
-            <div className="inline-error" role="alert">
-              <Info />
-              <span>{error}</span>
-              <button
-                aria-label="Dismiss Files error"
-                onClick={() => setError("")}
-              >
-                <X />
-              </button>
-            </div>
-          )}
-          {busy && (
-            <div role="status" className="loading-line">
-              Working…
-            </div>
-          )}
-          {trash ? (
-            <div className="trash-list">
-              {trash.map((t) => (
-                <div key={t.id}>
-                  <Trash />
+                <IconButton
+                  label="Parent folder"
+                  disabled={!path || path === "/"}
+                  onClick={() =>
+                    navigate(path.slice(0, path.lastIndexOf("/")) || "/")
+                  }
+                >
+                  <ArrowUp />
+                </IconButton>
+                <span className="toolbar-divider" />
+                <span className="breadcrumb">
+                  <House size={16} />
                   <span>
-                    <b>{t.name}</b>
-                    <small>{t.original}</small>
+                    {trash
+                      ? "Trash"
+                      : path === home
+                        ? "Home"
+                        : path.split("/").filter(Boolean).slice(-2).join(" / ")}
                   </span>
-                  <button
-                    onClick={async () => {
-                      await execute("restore", { id: t.id });
-                      try {
-                        setTrash(await call<TrashItem[]>("trash_list"));
-                      } catch (e) {
-                        setError(String(e));
-                      }
-                    }}
-                  >
-                    Restore
-                  </button>
-                </div>
-              ))}
-              {!trash.length && (
-                <div className="empty-state">
-                  <Trash />
-                  <h3>All clear.</h3>
-                  <p>Deleted files appear here for restoration.</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <div
-                className={"file-entries " + layout}
-                role="list"
-                aria-label="Files"
+                </span>
+              </div>
+              <form
+                className="search glass"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  search();
+                }}
               >
-                {layout === "list" && (
-                  <div className="list-head">
-                    <span>Name</span>
-                    <span>Date modified</span>
-                    <span>Size</span>
-                    <span>Kind</span>
+                <MagnifyingGlass />
+                <input
+                  aria-label="Search files"
+                  placeholder={
+                    global ? "Search indexed home…" : "Search this folder…"
+                  }
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <kbd>↵</kbd>
+              </form>
+            </div>
+            <div className="file-tabs">
+              {tabs.map((t, i) => (
+                <button
+                  key={i}
+                  className={activeTab === i ? "current" : ""}
+                  onClick={() => {
+                    setActiveTab(i);
+                    setHistory([t]);
+                    setHistoryIndex(0);
+                    setQuery("");
+                    setGlobal(false);
+                    load(t);
+                  }}
+                >
+                  <Folder size={15} />
+                  {t === home ? "Home" : t.split("/").pop() || "Disk"}
+                  {tabs.length > 1 && (
+                    <span
+                      role="button"
+                      aria-label={`Close tab ${i + 1}`}
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(i);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          closeTab(i);
+                        }
+                      }}
+                    >
+                      <X size={12} />
+                    </span>
+                  )}
+                </button>
+              ))}
+              <IconButton
+                label="New tab"
+                onClick={() => {
+                  setActiveTab(tabs.length);
+                  setTabs((t) => [...t, path]);
+                  setHistory([path]);
+                  setHistoryIndex(0);
+                }}
+              >
+                <Plus />
+              </IconButton>
+            </div>
+          </div>
+          <div className="files-content">
+            <div className="page-heading">
+              <div>
+                <p className="eyebrow">YOUR SPACE, BEAUTIFULLY ORGANIZED</p>
+                <h1>
+                  {trash
+                    ? "Trash"
+                    : path === home
+                      ? "My files"
+                      : path.split("/").pop() || "Lumius disk"}
+                  <span className="count-pill">
+                    {trash ? trash.length : entries.length}
+                  </span>
+                </h1>
+              </div>
+              <div>
+                <IconButton label="Refresh" onClick={() => load(path)}>
+                  <ArrowClockwise />
+                </IconButton>
+                <div className="segmented">
+                  <IconButton
+                    label="Grid view"
+                    active={layout === "grid"}
+                    onClick={() => setLayout("grid")}
+                  >
+                    <SquaresFour />
+                  </IconButton>
+                  <IconButton
+                    label="List view"
+                    active={layout === "list"}
+                    onClick={() => setLayout("list")}
+                  >
+                    <List />
+                  </IconButton>
+                </div>
+              </div>
+            </div>
+            {!trash && path === home && !query && (
+              <>
+                <div className="subheading">
+                  <h2>Quick access</h2>
+                  <span>Everything, a little closer.</span>
+                </div>
+                <div className="quick-access">
+                  {places.slice(2, 6).map(({ name, folder, icon: Icon }, i) => (
+                    <button
+                      className={"quick-card card-" + i}
+                      key={name}
+                      onClick={() => navigate(`${home}/${folder}`)}
+                    >
+                      <div>
+                        <Icon weight="duotone" />
+                        <ArrowSquareOut size={16} />
+                      </div>
+                      <b>{name}</b>
+                      <small>
+                        Open folder
+                        <ArrowRight size={12} />
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="subheading files-actions">
+              <h2>{trash ? "Recently deleted" : "All files"}</h2>
+              <div>
+                <label className="scope-check">
+                  <input
+                    type="checkbox"
+                    checked={global}
+                    onChange={(e) => setGlobal(e.target.checked)}
+                  />
+                  Indexed search
+                </label>
+                {global && (
+                  <button onClick={buildIndex} disabled={busy}>
+                    Rebuild index
+                  </button>
+                )}
+                <select
+                  aria-label="Sort files"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                >
+                  <option value="name">Name</option>
+                  <option value="modified">Modified</option>
+                  <option value="size">Size</option>
+                </select>
+              </div>
+            </div>
+            {listing.warning && !trash && (
+              <p className="inline-note">{listing.warning}</p>
+            )}
+            {error && (
+              <div className="inline-error" role="alert">
+                <Info />
+                <span>{error}</span>
+                <button
+                  aria-label="Dismiss Files error"
+                  onClick={() => setError("")}
+                >
+                  <X />
+                </button>
+              </div>
+            )}
+            {busy && (
+              <div role="status" className="loading-line">
+                Working…
+              </div>
+            )}
+            {trash ? (
+              <div className="trash-list">
+                {trash.map((t) => (
+                  <div key={t.id}>
+                    <Trash />
+                    <span>
+                      <b>{t.name}</b>
+                      <small>{t.original}</small>
+                    </span>
+                    <button
+                      onClick={async () => {
+                        await execute("restore", { id: t.id });
+                        try {
+                          setTrash(await call<TrashItem[]>("trash_list"));
+                        } catch (e) {
+                          setError(String(e));
+                        }
+                      }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+                {!trash.length && (
+                  <div className="empty-state">
+                    <Trash />
+                    <h3>All clear.</h3>
+                    <p>Deleted files appear here for restoration.</p>
                   </div>
                 )}
-                {entries.map((e) => (
-                  <button
-                    role="listitem"
-                    className={
-                      "file-entry " +
-                      (selected?.path === e.path ? "selected" : "")
-                    }
-                    key={e.path}
-                    onClick={() => setSelected(e)}
-                    onDoubleClick={() => open(e)}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter") open(e);
-                      if (ev.key === " ") {
-                        ev.preventDefault();
-                        showPreview(e);
-                      }
-                    }}
-                  >
-                    <span className="filename">
-                      <EntryIcon entry={e} large={layout === "grid"} />
-                      <span>{e.name}</span>
-                    </span>
-                    {layout === "list" && (
-                      <>
-                        <span>
-                          {e.modified
-                            ? new Date(e.modified * 1000).toLocaleDateString(
-                                "en-US",
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                },
-                              )
-                            : "—"}
-                        </span>
-                        <span>{e.directory ? "—" : size(e.size)}</span>
-                        <span>{e.kind}</span>
-                      </>
-                    )}
-                  </button>
-                ))}
               </div>
-              {!entries.length && !busy && (
-                <div className="empty-state">
-                  <Folder weight="duotone" />
-                  <h3>
-                    {query ? "Nothing found." : "Room for something new."}
-                  </h3>
-                  <p>
-                    {query
-                      ? "Try another filename or rebuild the home index."
-                      : "Create a folder or paste files here."}
-                  </p>
+            ) : (
+              <>
+                <div
+                  className={"file-entries " + layout}
+                  role="list"
+                  aria-label="Files"
+                >
+                  {layout === "list" && (
+                    <div className="list-head">
+                      <span>Name</span>
+                      <span>Date modified</span>
+                      <span>Size</span>
+                      <span>Kind</span>
+                    </div>
+                  )}
+                  {entries.map((e) => (
+                    <button
+                      role="listitem"
+                      className={
+                        "file-entry " +
+                        (selected?.path === e.path ? "selected" : "")
+                      }
+                      key={e.path}
+                      onClick={() => setSelected(e)}
+                      onDoubleClick={() => open(e)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") open(e);
+                        if (ev.key === " ") {
+                          ev.preventDefault();
+                          showPreview(e);
+                        }
+                      }}
+                    >
+                      <span className="filename">
+                        <EntryIcon entry={e} large={layout === "grid"} />
+                        <span>{e.name}</span>
+                      </span>
+                      {layout === "list" && (
+                        <>
+                          <span>
+                            {e.modified
+                              ? new Date(e.modified * 1000).toLocaleDateString(
+                                  "en-US",
+                                  {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  },
+                                )
+                              : "—"}
+                          </span>
+                          <span>{e.directory ? "—" : size(e.size)}</span>
+                          <span>{e.kind}</span>
+                        </>
+                      )}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </>
-          )}
+                {!entries.length && !busy && (
+                  <div className="empty-state">
+                    <Folder weight="duotone" />
+                    <h3>
+                      {query ? "Nothing found." : "Room for something new."}
+                    </h3>
+                    <p>
+                      {query
+                        ? "Try another filename or rebuild the home index."
+                        : "Create a folder or paste files here."}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
         <div className="selection-bar">
           <span>
@@ -1433,7 +1441,7 @@ function Dock(env: Environment) {
   return (
     <div className="dock-position">
       <nav className="dock glass" aria-label="Application dock">
-        <IconButton label="Open Files" onClick={() => env.launch("files")}>
+        <IconButton label="Search apps" onClick={() => env.launch("launcher")}>
           <SquaresFour weight="fill" />
         </IconButton>
         <span className="dock-divider" />
@@ -1516,8 +1524,10 @@ function SettingsPanel(env: Environment) {
         </nav>
       </aside>
       <section className="settings-main">
-        <p className="eyebrow">A LITTLE MORE YOU</p>
-        <h1>{categories.find((c) => c.id === page)?.label}</h1>
+        <header className="settings-head">
+          <p className="eyebrow">A LITTLE MORE YOU</p>
+          <h1>{categories.find((c) => c.id === page)?.label}</h1>
+        </header>
         {page === "appearance" ? (
           <>
             <p className="settings-intro">
@@ -1733,6 +1743,12 @@ function Menubar({
             minute: "2-digit",
           })}
         </span>
+        <button aria-label="Lock screen" onClick={() => launch("lock")}>
+          <Lock />
+        </button>
+        <button aria-label="Power options" onClick={() => launch("power")}>
+          <Power />
+        </button>
       </div>
     </header>
   );

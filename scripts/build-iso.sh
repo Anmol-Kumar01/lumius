@@ -36,6 +36,8 @@ trap 'mv -Tf chroot/etc/resolv.conf.lumius-saved chroot/etc/resolv.conf' EXIT
 chroot chroot apt-get update
 chroot chroot apt-get install -y qemu-guest-agent ntfs-3g exfatprogs console-setup
 chroot chroot apt-get purge -y plasma-welcome
+# Flathub gives Discover a full app catalogue (needs the temporary build DNS above).
+chroot chroot flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 mv -Tf chroot/etc/resolv.conf.lumius-saved chroot/etc/resolv.conf
 trap - EXIT
 for directory in chroot chroot/usr chroot/usr/bin chroot/usr/sbin chroot/etc; do

@@ -80,7 +80,15 @@ fn validate_settings(v: &Value) -> Result<(), String> {
         || pins.iter().any(|s| {
             !matches!(
                 s.as_str(),
-                Some("files" | "settings" | "music" | "browser" | "terminal" | "installer")
+                Some(
+                    "files"
+                        | "settings"
+                        | "music"
+                        | "browser"
+                        | "terminal"
+                        | "store"
+                        | "installer"
+                )
             )
         })
     {
@@ -214,9 +222,33 @@ pub fn open(path: &str) -> Result<Value, String> {
 }
 pub fn launch(id: &str) -> Result<Value, String> {
     match id {
-        "browser" => spawn("firefox-esr", &[]),
+        // Chromium supports Chrome Web Store extensions; Firefox remains as a fallback.
+        "browser" => spawn("chromium", &[]).or_else(|_| spawn("firefox-esr", &[])),
         "music" => spawn("vlc", &[]),
         "terminal" => spawn("konsole", &[]),
+        "store" => spawn("plasma-discover", &[]),
+        "launcher" => spawn(
+            "dbus-send",
+            &[
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.krunner",
+                "/App",
+                "org.kde.krunner.App.display",
+            ],
+        ),
+        // KDE's prompt offers shut down, restart and log out.
+        "power" => spawn(
+            "dbus-send",
+            &[
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.LogoutPrompt",
+                "/LogoutPrompt",
+                "org.kde.LogoutPrompt.promptAll",
+            ],
+        ),
+        "lock" => spawn("loginctl", &["lock-session"]),
         "installer" => {
             if !std::path::Path::new("/run/live/medium/live/filesystem.squashfs").exists() {
                 return Err("The installer is available from the live USB session.".into());
