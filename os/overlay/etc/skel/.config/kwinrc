@@ -1,0 +1,5 @@
+[Compositing]
+Enabled=true
+
+[Plugins]
+blurEnabled=true

@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+sed -i 's/^branding: debian/branding: lumius/' /etc/calamares/settings.conf
+update-alternatives --set x-session-manager /usr/bin/startplasma-x11
+# Debian live-config's older Plasma session mapping does not match Plasma 6.
+sed -i 's/LIVE_SESSION="plasma.desktop"/LIVE_SESSION="plasmax11.desktop"/' /lib/live/config/0085-sddm
+chmod 755 /usr/bin/lumius-session /usr/bin/lumius-files /usr/bin/lumius-settings
+mkdir -p /etc/skel/Documents /etc/skel/Downloads /etc/skel/Music /etc/skel/Pictures /etc/skel/Videos /etc/skel/Desktop
+rm -f /etc/skel/Desktop/calamares-install-debian.desktop /etc/skel/Desktop/lumius-installer.desktop
+cat > /etc/skel/Documents/Welcome-to-Lumius.txt <<'EOF'
+Welcome to Lumius.
+
+Open Music to play local tracks; controls appear in the island.
+Files works with your actual files. Right now, archive extraction supports ZIP.
+Settings and pinned app order persist after installation.
+
+This is a developer preview. Back up data before installation.
+EOF
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/10-lumius-session.conf <<'EOF'
+[Autologin]
+Session=plasmax11.desktop
+[General]
+DisplayServer=x11
+EOF
+cat > /etc/os-release <<'EOF'
+PRETTY_NAME="Lumius 0.1 (Debian GNU/Linux 13)"
+NAME="Lumius"
+VERSION_ID="0.1"
+VERSION="0.1 (Aurora)"
+ID=lumius
+ID_LIKE=debian
+VERSION_CODENAME=trixie
+DEBIAN_VERSION_FULL=13
+EOF
+printf 'Lumius 0.1 — Debian GNU/Linux 13\n' > /etc/issue

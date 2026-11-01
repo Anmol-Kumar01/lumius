@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Lumius Desktop
+Exec=/usr/bin/lumius-session
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2

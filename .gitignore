@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+upstream/
+.build/
+artifacts/
+*.iso
+*.qcow2
+test-results/
+playwright-report/
+__pycache__/
+*.pyc

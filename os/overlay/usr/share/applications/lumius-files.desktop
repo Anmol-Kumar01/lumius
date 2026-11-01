@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Lumius Files
+Exec=/usr/bin/lumius-files
+Icon=system-file-manager
+Categories=System;FileManager;

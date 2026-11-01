@@ -1,0 +1,16 @@
+[Unit]
+Description=Lumius island and dock
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lumius --shell
+Restart=on-failure
+RestartSec=3
+Environment=GDK_BACKEND=x11
+
+[Install]
+WantedBy=default.target

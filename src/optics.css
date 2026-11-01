@@ -1,0 +1,21 @@
+/* Sticky content passes behind a frosted header during scrolling. */
+.page-heading {
+  position: sticky;
+  top: -27px;
+  z-index: 2;
+  padding: 20px 0 14px;
+  margin-top: -20px;
+  background: #eff6fb4a;
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  border-radius: 0 0 12px 12px;
+}
+@supports (backdrop-filter: url("#lumius-refraction")) {
+  .dock {
+    backdrop-filter: blur(var(--blur)) saturate(150%) url("#lumius-refraction");
+  }
+}
+.solid .page-heading {
+  background: #f2f6fc;
+  backdrop-filter: none;
+}

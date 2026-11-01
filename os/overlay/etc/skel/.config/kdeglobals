@@ -1,0 +1,7 @@
+[General]
+ColorScheme=BreezeLight
+# Ten-field QFont strings use the legacy weight scale (50 is normal).
+font=Noto Sans,10,-1,5,50,0,0,0,0,0
+
+[KDE]
+SingleClick=false

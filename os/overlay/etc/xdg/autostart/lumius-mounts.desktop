@@ -1,0 +1,4 @@
+[Desktop Entry]
+Type=Application
+Name=Lumius Removable Drives
+Exec=udiskie --no-tray

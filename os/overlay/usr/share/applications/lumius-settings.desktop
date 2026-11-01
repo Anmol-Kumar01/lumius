@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Lumius Settings
+Exec=/usr/bin/lumius-settings
+Icon=preferences-system
+Categories=Settings;

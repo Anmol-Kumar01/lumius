@@ -1,0 +1,25 @@
+name: Lumius source checks
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+  native:
+    runs-on: ubuntu-latest
+    container: debian:13
+    steps:
+      - run: apt-get update && apt-get install -y git curl ca-certificates nodejs npm build-essential pkg-config libwebkit2gtk-4.1-dev libssl-dev libdbus-1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: actions/checkout@v4
+      - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - run: npm ci && npm run build
+      - run: bash scripts/check-overlay.sh
+      - run: /root/.cargo/bin/cargo test --locked --manifest-path src-tauri/Cargo.toml

@@ -1,0 +1,28 @@
+---
+componentName: lumius
+welcomeStyleCalamares: true
+welcomeExpandingLogo: true
+windowExpanding: normal
+windowSize: 900px,640px
+windowPlacement: center
+strings:
+  productName: Lumius
+  shortProductName: Lumius
+  version: '0.1'
+  shortVersion: '0.1'
+  versionedName: Lumius 0.1
+  shortVersionedName: Lumius 0.1
+  bootloaderEntryName: Lumius
+sidebar: widget
+navigation: widget
+images:
+  productLogo: lumius.svg
+  productIcon: lumius.svg
+  productWelcome: lumius.svg
+slideshow: show.qml
+slideshowAPI: 2
+style:
+  SidebarBackground: '#3269b5'
+  SidebarText: '#ffffff'
+  SidebarTextCurrent: '#ffffff'
+  SidebarBackgroundCurrent: '#4d83cb'

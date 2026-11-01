@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lumius",
+  "version": "0.1.0",
+  "identifier": "org.lumius.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Lumius Files",
+        "url": "index.html?view=files",
+        "width": 1120,
+        "height": 740,
+        "minWidth": 760,
+        "minHeight": 500,
+        "center": true,
+        "transparent": true,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost; font-src 'self'; object-src 'none'; frame-src 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "/media/**",
+          "/run/media/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb"
+    ],
+    "category": "Utility",
+    "shortDescription": "Lumius glass desktop",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "playerctl",
+          "pipewire-bin",
+          "brightnessctl",
+          "xdg-utils",
+          "wmctrl"
+        ],
+        "files": {
+          "/usr/share/doc/lumius/LICENSE": "../LICENSE",
+          "/usr/share/doc/lumius/THIRD_PARTY.md": "../THIRD_PARTY.md",
+          "/usr/share/doc/lumius/README.md": "../README.md"
+        }
+      }
+    },
+    "license": "GPL-3.0-only",
+    "licenseFile": "../LICENSE"
+  }
+}

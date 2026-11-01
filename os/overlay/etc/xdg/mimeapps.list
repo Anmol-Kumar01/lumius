@@ -1,0 +1,7 @@
+[Default Applications]
+audio/x-wav=vlc.desktop;
+audio/wav=vlc.desktop;
+audio/mpeg=vlc.desktop;
+audio/ogg=vlc.desktop;
+audio/flac=vlc.desktop;
+text/plain=org.kde.kwrite.desktop;

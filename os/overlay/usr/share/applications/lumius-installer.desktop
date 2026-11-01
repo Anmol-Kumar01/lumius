@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install Lumius
+Exec=calamares-install-debian
+TryExec=calamares-install-debian
+Icon=system-software-install
+Categories=System;
