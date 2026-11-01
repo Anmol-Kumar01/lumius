@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -87,6 +88,7 @@ fn validate_settings(v: &Value) -> Result<(), String> {
                         | "browser"
                         | "terminal"
                         | "store"
+                        | "ask"
                         | "installer"
                 )
             )
@@ -219,6 +221,114 @@ pub fn open(path: &str) -> Result<Value, String> {
         let _ = p;
         Err("File opening is supported in the Linux session".into())
     }
+}
+pub fn open_url(url: &str) -> Result<Value, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Only web links can be opened".into());
+    }
+    spawn("xdg-open", &[url])
+}
+// Exa web answers. The key comes from EXA_API_KEY or a private file saved from Settings,
+// and is passed to curl on stdin so it never appears in the process list.
+fn exa_key_path() -> Result<std::path::PathBuf, String> {
+    Ok(crate::files::config()?.join("exa-api-key"))
+}
+fn exa_key() -> Option<String> {
+    std::env::var("EXA_API_KEY")
+        .ok()
+        .filter(|k| !k.trim().is_empty())
+        .or_else(|| fs::read_to_string(exa_key_path().ok()?).ok())
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+}
+pub fn exa_key_status() -> Result<Value, String> {
+    Ok(json!({ "configured": exa_key().is_some() }))
+}
+pub fn exa_key_set(key: &str) -> Result<Value, String> {
+    let key = key.trim();
+    if key.len() < 8
+        || key.len() > 200
+        || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("That doesn't look like an Exa API key.".into());
+    }
+    let path = exa_key_path()?;
+    let temp = path.with_extension("tmp");
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+        .open(&temp)
+        .and_then(|mut f| f.write_all(key.as_bytes()))
+        .map_err(|e| e.to_string())?;
+    fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+    exa_key_status()
+}
+pub fn ask(query: &str) -> Result<Value, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("Type a question first.".into());
+    }
+    let key = exa_key().ok_or("Add your Exa API key in Settings → Web answers.")?;
+    let body = json!({ "query": query }).to_string();
+    let mut child = Command::new("curl")
+        .args([
+            "-sS",
+            "--max-time",
+            "60",
+            "-X",
+            "POST",
+            "https://api.exa.ai/answer",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "@-",
+            "--data-binary",
+            &body,
+            "-w",
+            "\n%{http_code}",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "Web answers need curl, which is not installed.".to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or("curl stdin unavailable")?
+        .write_all(format!("x-api-key: {key}\n").as_bytes())
+        .map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err("Can't reach Exa. Check the internet connection.".into());
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (payload, code) = text.rsplit_once('\n').unwrap_or(("", text.as_ref()));
+    match code.trim() {
+        "200" => {}
+        "401" | "403" => return Err("Exa rejected the API key. Update it in Settings → Web answers.".into()),
+        "429" => return Err("Exa is busy right now. Try again in a moment.".into()),
+        other => return Err(format!("Exa request failed (HTTP {other}).")),
+    }
+    let v: Value = serde_json::from_str(payload).map_err(|_| "Exa sent an unreadable reply.")?;
+    let citations: Vec<Value> = v["citations"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|c| {
+                    let url = c["url"].as_str()?;
+                    Some(json!({
+                        "url": url,
+                        "title": c["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(url),
+                        "publishedDate": c["publishedDate"],
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({ "answer": v["answer"].as_str().unwrap_or(""), "citations": citations }))
 }
 pub fn launch(id: &str) -> Result<Value, String> {
     match id {

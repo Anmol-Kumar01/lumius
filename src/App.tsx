@@ -57,6 +57,8 @@ import {
   Eye,
   Storefront,
   Lock,
+  Sparkle,
+  Key,
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -71,6 +73,7 @@ import type {
   Status,
   Transfer,
   TrashItem,
+  Answer,
 } from "./types";
 
 const appIcons: Record<string, typeof Folder> = {
@@ -80,6 +83,7 @@ const appIcons: Record<string, typeof Folder> = {
   browser: Globe,
   terminal: Terminal,
   store: Storefront,
+  ask: Sparkle,
   installer: DownloadSimple,
 };
 const appNames: Record<string, string> = {
@@ -89,6 +93,7 @@ const appNames: Record<string, string> = {
   browser: "Browser",
   terminal: "Terminal",
   store: "Software",
+  ask: "Ask",
   installer: "Install Lumius",
 };
 const size = (n: number) =>
@@ -259,7 +264,7 @@ export default function App() {
     await task;
   };
   const launch = async (id: string) => {
-    if (!native && ["files", "settings"].includes(id)) {
+    if (!native && ["files", "settings", "ask"].includes(id)) {
       setPreviewView(id);
       return;
     }
@@ -315,13 +320,12 @@ export default function App() {
             </div>
             <Island {...env} />
             <div className="desktop-window">
-              <WindowFrame
-                title={previewView === "files" ? "Files" : "Settings"}
-                preview
-              >
+              <WindowFrame title={appNames[previewView]} preview>
                 <>
                   {previewView === "files" ? (
                     <Files launch={launch} transfers={transfers} />
+                  ) : previewView === "ask" ? (
+                    <AskPanel />
                   ) : (
                     <SettingsPanel {...env} />
                   )}
@@ -347,6 +351,11 @@ export default function App() {
         {view === "settings" && (
           <WindowFrame title="Settings">
             <SettingsPanel {...env} />
+          </WindowFrame>
+        )}
+        {view === "ask" && (
+          <WindowFrame title="Ask">
+            <AskPanel />
           </WindowFrame>
         )}
         {view === "bar" && (
@@ -1521,6 +1530,7 @@ function SettingsPanel(env: Environment) {
     { id: "network", label: "Wi-Fi & network", icon: WifiHigh },
     { id: "bluetooth", label: "Bluetooth", icon: Bluetooth },
     { id: "display", label: "Displays", icon: Monitor },
+    { id: "exa", label: "Web answers", icon: Sparkle },
     { id: "about", label: "About Lumius", icon: Info },
   ];
   return (
@@ -1681,6 +1691,8 @@ function SettingsPanel(env: Environment) {
               backlight devices.
             </p>
           </div>
+        ) : page === "exa" ? (
+          <ExaSettings launch={launch} />
         ) : page === "about" ? (
           <div className="about-panel glass">
             <div className="logo-orb" />
@@ -1738,6 +1750,10 @@ function Menubar({
         <b>Lumius</b>
         <button onClick={() => launch("files")}>Files</button>
         <button onClick={() => launch("settings")}>Settings</button>
+        <button onClick={() => launch("ask")}>
+          <Sparkle weight="fill" className="menubar-ask" />
+          Ask
+        </button>
       </div>
       <div>
         <button aria-label="Network settings" onClick={() => launch("network")}>
@@ -1773,5 +1789,244 @@ function Menubar({
         </button>
       </div>
     </header>
+  );
+}
+
+const suggestions = [
+  "What's new in Linux this month?",
+  "Explain how an operating system boots",
+  "Best open-source alternatives to Photoshop",
+];
+// Turns Exa's "[1]" citation markers and **bold** runs into inline elements.
+function AnswerText({
+  text,
+  onCite,
+}: {
+  text: string;
+  onCite: (index: number) => void;
+}) {
+  return (
+    <>
+      {text
+        .split(/\n{2,}/)
+        .filter((p) => p.trim())
+        .map((paragraph, i) => (
+          <p key={i}>
+            {paragraph.split(/(\[\d+\]|\*\*[^*]+\*\*)/).map((part, j) => {
+              const cite = part.match(/^\[(\d+)\]$/);
+              if (cite)
+                return (
+                  <button
+                    key={j}
+                    className="cite"
+                    aria-label={`Open source ${cite[1]}`}
+                    onClick={() => onCite(Number(cite[1]) - 1)}
+                  >
+                    {cite[1]}
+                  </button>
+                );
+              if (part.startsWith("**") && part.endsWith("**"))
+                return <b key={j}>{part.slice(2, -2)}</b>;
+              return part;
+            })}
+          </p>
+        ))}
+    </>
+  );
+}
+function AskPanel() {
+  const [query, setQuery] = useState(""),
+    [asked, setAsked] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [result, setResult] = useState<Answer | null>(null);
+  const request = useRef(0);
+  const ask = async (text: string) => {
+    const q = text.trim();
+    if (!q) return;
+    const id = ++request.current;
+    setQuery(q);
+    setAsked(q);
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const answer = await call<Answer>("ask", { query: q });
+      if (id === request.current) setResult(answer);
+    } catch (e) {
+      if (id === request.current) setError(String(e));
+    } finally {
+      if (id === request.current) setBusy(false);
+    }
+  };
+  const openSource = (index: number) => {
+    const source = result?.citations[index];
+    if (source)
+      call("open_url", { url: source.url }).catch((e) => setError(String(e)));
+  };
+  const host = (url: string) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return url;
+    }
+  };
+  return (
+    <div className="app-body ask-body">
+      <div className="ask-scroll">
+        <header className="ask-hero">
+          <span className="ask-orb">
+            <Sparkle weight="fill" />
+          </span>
+          <h1>Ask anything.</h1>
+          <p>Answers from the live web, with sources. Powered by Exa.</p>
+          <form
+            className="ask-box"
+            onSubmit={(e) => {
+              e.preventDefault();
+              ask(query);
+            }}
+          >
+            <MagnifyingGlass />
+            <input
+              autoFocus
+              aria-label="Ask a question"
+              placeholder="Ask about anything on the web…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button
+              className="primary"
+              type="submit"
+              disabled={busy || !query.trim()}
+            >
+              {busy ? "Searching…" : "Ask"}
+              <ArrowRight />
+            </button>
+          </form>
+          {!result && !busy && (
+            <div className="ask-suggestions">
+              {suggestions.map((s) => (
+                <button key={s} onClick={() => ask(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+        {error && (
+          <div className="inline-error ask-error" role="alert">
+            <Info />
+            <span>{error}</span>
+            <button aria-label="Dismiss" onClick={() => setError("")}>
+              <X />
+            </button>
+          </div>
+        )}
+        {busy && (
+          <div className="ask-card glass" role="status">
+            <p className="eyebrow">READING THE WEB</p>
+            <span className="ask-shimmer" />
+            <span className="ask-shimmer" />
+            <span className="ask-shimmer short" />
+          </div>
+        )}
+        {result && (
+          <article className="ask-card glass" aria-live="polite">
+            <p className="eyebrow">ANSWER</p>
+            <h2>{asked}</h2>
+            <div className="ask-answer">
+              {result.answer ? (
+                <AnswerText text={result.answer} onCite={openSource} />
+              ) : (
+                <p>Exa found no answer for that. Try rephrasing.</p>
+              )}
+            </div>
+            {result.citations.length > 0 && (
+              <>
+                <p className="eyebrow">SOURCES</p>
+                <ol className="ask-sources">
+                  {result.citations.map((c, i) => (
+                    <li key={c.url + i}>
+                      <button onClick={() => openSource(i)}>
+                        <span className="source-index">{i + 1}</span>
+                        <span>
+                          <b>{c.title}</b>
+                          <small>{host(c.url)}</small>
+                        </span>
+                        <ArrowSquareOut />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </article>
+        )}
+      </div>
+    </div>
+  );
+}
+function ExaSettings({ launch }: { launch: Environment["launch"] }) {
+  const [configured, setConfigured] = useState<boolean | null>(null),
+    [key, setKey] = useState(""),
+    [message, setMessage] = useState("");
+  useEffect(() => {
+    call<{ configured: boolean | null }>("exa_key_status")
+      .then((r) => setConfigured(r.configured))
+      .catch(() => setConfigured(false));
+  }, []);
+  return (
+    <>
+      <p className="settings-intro">
+        Ask answers questions from the live web, with sources, using Exa.
+      </p>
+      <div className="settings-group glass">
+        <h2>Exa API key</h2>
+        <p>
+          {configured === null
+            ? "In the browser demo the key is read from .env.local by the dev server."
+            : configured
+              ? "A key is saved. Paste a new one to replace it."
+              : "Paste your key from dashboard.exa.ai. It is stored privately in your home folder."}
+        </p>
+        {configured !== null && (
+          <form
+            className="key-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                const r = await call<{ configured: boolean }>("exa_key_set", {
+                  key,
+                });
+                setConfigured(r.configured);
+                setKey("");
+                setMessage("Saved. Ask is ready.");
+              } catch (err) {
+                setMessage(String(err));
+              }
+            }}
+          >
+            <Key />
+            <input
+              type="password"
+              aria-label="Exa API key"
+              placeholder="Exa API key"
+              autoComplete="off"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+            />
+            <button className="primary" type="submit" disabled={!key.trim()}>
+              Save key
+            </button>
+          </form>
+        )}
+        {message && <p role="status">{message}</p>}
+        <button className="primary" onClick={() => launch("ask")}>
+          Open Ask
+          <ArrowSquareOut />
+        </button>
+      </div>
+    </>
   );
 }

@@ -37,6 +37,7 @@ plasma-discover-backend-flatpak
 flatpak
 kde-spectacle
 dbus-bin
+curl
 konsole
 fonts-noto-core
 zip

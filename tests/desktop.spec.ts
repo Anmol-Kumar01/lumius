@@ -139,3 +139,41 @@ test("compact desktop has no horizontal overflow", async ({ page }) => {
   ).toBeTruthy();
   await page.screenshot({ path: "artifacts/desktop-1024.png" });
 });
+test("Ask shows a web answer with clickable sources", async ({ page }) => {
+  await page.route("**/exa/answer", (route) =>
+    route.fulfill({
+      json: {
+        answer:
+          "Debian is a free operating system [1].\n\nIt is **stable** [2].",
+        citations: [
+          { url: "https://www.debian.org/intro/about", title: "About Debian" },
+          { url: "https://wiki.debian.org/", title: "Debian Wiki" },
+        ],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Ask a question" })
+    .fill("What is Debian?");
+  await page.getByRole("button", { name: "Ask", exact: true }).last().click();
+  await expect(page.locator(".ask-answer")).toContainText(
+    "Debian is a free operating system",
+  );
+  await expect(page.locator(".ask-sources li")).toHaveCount(2);
+  await expect(page.getByText("debian.org", { exact: true })).toBeVisible();
+});
+test("Ask explains a rejected key instead of failing silently", async ({
+  page,
+}) => {
+  await page.route("**/exa/answer", (route) => route.fulfill({ status: 401 }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await page
+    .getByRole("button", { name: /Explain how an operating system/ })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Exa rejected the API key",
+  );
+});

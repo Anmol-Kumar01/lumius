@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Answer,
   Entry,
   Listing,
   Settings,
@@ -370,6 +371,53 @@ async function demo(
         `${appLabels[id] || "This app"} runs in the installed Lumius OS. The browser demo can't open system apps.`,
       );
     }
+    case "ask": {
+      const query = s("query").trim();
+      if (!query) throw new Error("Type a question first.");
+      let res: Response;
+      try {
+        res = await fetch("/exa/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+      } catch {
+        throw new Error("Can't reach Exa. Check the internet connection.");
+      }
+      if (res.status === 401 || res.status === 403)
+        throw new Error(
+          "Exa rejected the API key. Set EXA_API_KEY in .env.local and restart npm run dev.",
+        );
+      if (res.status === 429)
+        throw new Error("Exa is busy right now. Try again in a moment.");
+      if (!res.ok) throw new Error(`Exa request failed (HTTP ${res.status}).`);
+      const data = await res.json();
+      return {
+        answer: data.answer || "",
+        citations: (data.citations || [])
+          .filter((c: { url?: string }) => c.url)
+          .map(
+            (c: { url: string; title?: string; publishedDate?: string }) => ({
+              url: c.url,
+              title: c.title || c.url,
+              publishedDate: c.publishedDate ?? null,
+            }),
+          ),
+      } satisfies Answer;
+    }
+    case "open_url": {
+      const url = s("url");
+      if (!/^https?:\/\//.test(url))
+        throw new Error("Only web links can be opened");
+      window.open(url, "_blank", "noopener");
+      return null;
+    }
+    case "exa_key_status":
+      return { configured: null };
+    case "exa_key_set":
+      throw new Error(
+        "In the browser demo the key lives in .env.local on the dev server.",
+      );
     case "window_region":
     case "island_expand":
       return null;

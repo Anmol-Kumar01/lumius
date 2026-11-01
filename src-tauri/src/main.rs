@@ -98,9 +98,13 @@ fn dispatch(app: tauri::AppHandle, state: Arc<Shared>, c: &str, a: Value) -> Res
         "status" => system::status(),
         "control" => system::control(field(&a, "action")?, a["value"].as_u64()),
         "open" => system::open(field(&a, "path")?),
+        "open_url" => system::open_url(field(&a, "url")?),
+        "ask" => system::ask(field(&a, "query")?),
+        "exa_key_status" => system::exa_key_status(),
+        "exa_key_set" => system::exa_key_set(field(&a, "key")?),
         "launch" => {
             let id = field(&a, "id")?;
-            if ["files", "settings"].contains(&id) {
+            if ["files", "settings", "ask"].contains(&id) {
                 open_window(&app, id)?;
                 Ok(Value::Null)
             } else {

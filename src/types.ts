@@ -33,3 +33,9 @@ export type Transfer = {
   error?: string;
 };
 export type TrashItem = { id: string; name: string; original: string };
+export type Citation = {
+  url: string;
+  title: string;
+  publishedDate: string | null;
+};
+export type Answer = { answer: string; citations: Citation[] };
