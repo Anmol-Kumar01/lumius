@@ -1,0 +1,2 @@
+# Keep Chromium from prompting for a KDE wallet on first launch.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --password-store=basic"

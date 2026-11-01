@@ -9,7 +9,8 @@ use x11rb::{
     protocol::{
         shape::{ConnectionExt as _, SK, SO},
         xproto::{
-            AtomEnum, ClipOrdering, ConfigureWindowAux, ConnectionExt, PropMode, Rectangle, Window,
+            AtomEnum, ClientMessageEvent, ClipOrdering, ConfigureWindowAux, ConnectionExt,
+            EventMask, PropMode, Rectangle, Window,
         },
     },
     wrapper::ConnectionExt as _,
@@ -246,6 +247,9 @@ fn apply(c: &impl Connection, root: Window, w: Window, full: bool, scale: f64) {
         }
         cached.region = Some(region);
     }
+    if label == "island" {
+        keep_above_bar(c, root, w);
+    }
     let mut strut = [0u32; 12];
     if top {
         strut[2] = (46.0 * scale) as u32;
@@ -299,5 +303,42 @@ fn apply(c: &impl Connection, root: Window, w: Window, full: bool, scale: f64) {
     let target_y = if full && !reveal { hidden_y } else { normal_y };
     if position.dst_y as i32 != target_y {
         let _ = c.configure_window(w, &ConfigureWindowAux::new().y(target_y));
+    }
+}
+// The full-width bar and the island are both keep-above docks; KWin may stack the bar
+// over the island. Ask the window manager to restack the island above the bar.
+fn keep_above_bar(c: &impl Connection, root: Window, island: Window) {
+    let (Some(list), Some(restack)) = (
+        atom(c, "_NET_CLIENT_LIST_STACKING"),
+        atom(c, "_NET_RESTACK_WINDOW"),
+    ) else {
+        return;
+    };
+    let Some(stack): Option<Vec<u32>> = c
+        .get_property(false, root, list, AtomEnum::WINDOW, 0, 1024)
+        .ok()
+        .and_then(|r| r.reply().ok())
+        .and_then(|r| r.value32().map(|i| i.collect()))
+    else {
+        return;
+    };
+    let Some(island_at) = stack.iter().position(|&w| w == island) else {
+        return;
+    };
+    let Some(bar_at) = stack
+        .iter()
+        .position(|&w| text(c, w, "_NET_WM_NAME") == "Lumius bar")
+    else {
+        return;
+    };
+    if bar_at > island_at {
+        let event = ClientMessageEvent::new(32, island, restack, [2, stack[bar_at], 0, 0, 0]);
+        let _ = c.send_event(
+            false,
+            root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            event,
+        );
+        let _ = c.flush();
     }
 }

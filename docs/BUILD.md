@@ -60,7 +60,7 @@ bash scripts/build-iso.sh         # artifacts/lumius-0.1.0-amd64.iso
 exit
 ```
 
-To re-enter later: `docker start -ai lumius-build`. For a second ISO build in the same container, use `bash scripts/rebuild-iso.sh`, because `build-iso.sh` refuses to overwrite an existing image.
+To re-enter later: `docker start -ai lumius-build`. For a second ISO build in the same container, run `cd /var/tmp/lumius-iso && lb clean && cd /src && bash scripts/build-iso.sh`. `lb clean` keeps the downloaded packages, so the rebuild doesn't download them again. Don't use `rebuild-iso.sh`: live-build restores its cached base system and skips the desktop packages, producing an image without the desktop.
 
 The container runs as root, so hand the files back to your user before working on the host again:
 
