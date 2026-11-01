@@ -1628,6 +1628,30 @@ function AskPanel() {
       if (id === request.current) setBusy(false);
     }
   };
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  useEffect(() => {
+    // Files hands over questions typed into its search box ("…, or ask").
+    const pending = () => {
+      try {
+        const q = localStorage.getItem("lumius-ask");
+        if (q) {
+          localStorage.removeItem("lumius-ask");
+          askRef.current(q);
+        }
+      } catch {
+        /* storage unavailable */
+      }
+    };
+    const storage = (e: StorageEvent) => e.key === "lumius-ask" && e.newValue && pending();
+    pending();
+    window.addEventListener("lumius-ask", pending);
+    window.addEventListener("storage", storage);
+    return () => {
+      window.removeEventListener("lumius-ask", pending);
+      window.removeEventListener("storage", storage);
+    };
+  }, []);
   const openSource = (index: number) => {
     const source = result?.citations[index];
     if (source)
@@ -1642,6 +1666,14 @@ function AskPanel() {
   };
   return (
     <div className="app-body ask-body">
+      <header className="lm-toolbar lm-ask-bar" data-drag>
+        <GlassIcon app="ask" size={28} />
+        <h1 data-drag>Ask</h1>
+        <span className="lm-ask-note" data-drag>
+          Live web answers with sources
+        </span>
+        <WindowControls />
+      </header>
       <div className="ask-scroll">
         <header className="ask-hero">
           <span className="ask-orb">

@@ -6,8 +6,10 @@ update-alternatives --set x-session-manager /usr/bin/startplasma-x11
 sed -i 's/LIVE_SESSION="plasma.desktop"/LIVE_SESSION="plasmax11.desktop"/' /lib/live/config/0085-sddm
 # The live session's installer shortcut comes from calamares-settings-debian.
 if [ -f /usr/share/applications/install-debian.desktop ]; then
-  sed -i -e '/^Name\[/d' -e '/^GenericName\[/d' -e 's/^Name=.*/Name=Install Lumius/' -e 's/^GenericName=.*/GenericName=Install Lumius/' /usr/share/applications/install-debian.desktop
+  sed -i -e '/^Name\[/d' -e '/^GenericName\[/d' -e 's/^Name=.*/Name=Install Lumius/' -e 's/^GenericName=.*/GenericName=Install Lumius/' -e 's/^Icon=.*/Icon=lumius-installer/' /usr/share/applications/install-debian.desktop
 fi
+# Lumius glass icons ship as scalable SVGs in the hicolor theme.
+gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
 chmod 755 /usr/bin/lumius-session /usr/bin/lumius-files /usr/bin/lumius-settings
 mkdir -p /etc/skel/Documents /etc/skel/Downloads /etc/skel/Music /etc/skel/Pictures /etc/skel/Videos /etc/skel/Desktop
 rm -f /etc/skel/Desktop/calamares-install-debian.desktop /etc/skel/Desktop/lumius-installer.desktop

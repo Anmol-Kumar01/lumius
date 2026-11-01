@@ -150,7 +150,7 @@ export function openIsland(tab: IslandTab) {
   }
   window.dispatchEvent(new CustomEvent("lumius-island", { detail: tab }));
 }
-type IslandTab = "now" | "transfers" | "controls";
+type IslandTab = "now" | "transfers" | "controls" | "power";
 
 const clock = (now: Date) =>
   now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -240,7 +240,7 @@ export function TopBar({
         <button
           className="lm-ib lm-power"
           aria-label="Power options"
-          onClick={() => launch("power")}
+          onClick={() => openIsland("power")}
         >
           <Glyph d={P.power} size={16} width={2} />
         </button>
@@ -294,7 +294,7 @@ export function Island({
   toggleRef.current = toggle;
   useEffect(() => {
     const show = (t: unknown) => {
-      if (t === "now" || t === "transfers" || t === "controls")
+      if (t === "now" || t === "transfers" || t === "controls" || t === "power")
         toggleRef.current(true, t);
     };
     const storage = (e: StorageEvent) => {
@@ -318,11 +318,13 @@ export function Island({
   const media = !!status?.title && (playing || status.title !== "Nothing playing");
   return (
     <section
-      className={"lm-island" + (open ? " open" : "")}
+      className={"lm-island" + (open ? " open" : "") + (open && tab === "power" ? " power" : "")}
       aria-label="Dynamic Island"
       onKeyDown={(e) => e.key === "Escape" && toggle(false)}
     >
-      {open ? (
+      {open && tab === "power" ? (
+        <PowerPanel launch={launch} close={() => toggle(false)} />
+      ) : open ? (
         <div className="lm-island-body">
           <div className="lm-island-tabs" role="tablist">
             {(["now", "transfers", "controls"] as IslandTab[]).map((t) => (
@@ -495,6 +497,81 @@ export function Island({
     </section>
   );
 }
+// Hold the light to turn it off: the ring fills over 1.2s and drains back if released.
+function PowerPanel({
+  launch,
+  close,
+}: {
+  launch: (id: string) => Promise<void>;
+  close: () => void;
+}) {
+  const [holding, setHolding] = useState(false);
+  const fired = useRef(false);
+  const start = () => {
+    fired.current = false;
+    setHolding(true);
+  };
+  const stop = () => setHolding(false);
+  return (
+    <div className="lm-island-body lm-power-panel">
+      <div className="lm-island-tabs">
+        <b className="lm-power-title">Power</b>
+        <button className="lm-ctl lm-ctl-sm" aria-label="Collapse Dynamic Island" onClick={close}>
+          <Glyph d={P.chevronUp} size={14} width={2.2} />
+        </button>
+      </div>
+      <div className="lm-power-row">
+        <button
+          className={"lm-hold" + (holding ? " holding" : "")}
+          aria-label="Hold to power off"
+          onPointerDown={start}
+          onPointerUp={stop}
+          onPointerLeave={stop}
+          onPointerCancel={stop}
+          onKeyDown={(e) => {
+            if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+              e.preventDefault();
+              start();
+            }
+          }}
+          onKeyUp={stop}
+        >
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <circle cx="32" cy="32" r="29" />
+            <circle
+              className="lm-hold-fill"
+              cx="32"
+              cy="32"
+              r="29"
+              onTransitionEnd={() => {
+                if (holding && !fired.current) {
+                  fired.current = true;
+                  launch("poweroff");
+                }
+              }}
+            />
+          </svg>
+          <Glyph d={P.power} size={24} width={2.2} />
+        </button>
+        <div className="lm-row-text">
+          <b>{holding ? "Keep holding…" : "Hold to power off"}</b>
+          <small>Hold the button, or Space, for a moment.</small>
+        </div>
+      </div>
+      <div className="lm-tiles lm-tiles-3">
+        <button className="lm-tile" onClick={() => launch("reboot")}>
+          Restart<small>Start again</small>
+        </button>
+        <button className="lm-tile" onClick={() => launch("logout")}>
+          Log out<small>End session</small>
+        </button>
+        <button className="lm-tile" onClick={() => launch("lock")}>
+          Lock<small>Screen</small>
+        </button>
+      </div>
+    </div>
+  );
+}
 function IslandSlider({
   label,
   aria,
@@ -645,7 +722,7 @@ export function Shelf({
         <button
           key={w.id}
           className={"lm-chip" + (w.active ? " on" : "")}
-          aria-label={w.label}
+          aria-label={`Show ${w.label}`}
           style={{ "--glow": appGlow[w.app] ?? appGlow.apps } as CSSProperties}
           onClick={() =>
             w.id >= 0

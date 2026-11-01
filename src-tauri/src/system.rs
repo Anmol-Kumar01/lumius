@@ -376,6 +376,19 @@ pub fn launch(id: &str) -> Result<Value, String> {
             ],
         ),
         "lock" => spawn("loginctl", &["lock-session"]),
+        // The island's power panel; logind lets the active local session do these.
+        "poweroff" => spawn("systemctl", &["poweroff"]),
+        "reboot" => spawn("systemctl", &["reboot"]),
+        "logout" => spawn(
+            "dbus-send",
+            &[
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.Shutdown",
+                "/Shutdown",
+                "org.kde.Shutdown.logout",
+            ],
+        ),
         // The bar's three workspace pills map to KWin virtual desktops 1-3.
         "workspace-1" | "workspace-2" | "workspace-3" => spawn(
             "dbus-send",

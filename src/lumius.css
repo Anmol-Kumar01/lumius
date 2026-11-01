@@ -578,6 +578,58 @@
   text-align: right;
 }
 
+.lm-power-title {
+  padding-left: 4px;
+  font-family: var(--display);
+  font-size: 15px;
+}
+.lm-power-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.lm-hold {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgb(255 255 255 / 0.1);
+  touch-action: none;
+}
+.lm-hold > svg:first-child {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 4;
+}
+.lm-hold circle {
+  stroke: rgb(255 255 255 / 0.16);
+}
+.lm-hold .lm-hold-fill {
+  stroke: #ff6b81;
+  stroke-linecap: round;
+  stroke-dasharray: 183;
+  stroke-dashoffset: 183;
+  filter: drop-shadow(0 0 6px #ff6b81);
+  transition: stroke-dashoffset 300ms ease-out;
+}
+.lm-hold.holding .lm-hold-fill {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1200ms linear;
+}
+.lm-hold.holding {
+  background: rgb(255 107 129 / 0.22);
+}
+.lm-tiles-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 /* ── Shelf ─────────────────────────────────────────────────────────── */
 .lm-shelf {
   position: absolute;
@@ -1628,6 +1680,23 @@
 /* Ask keeps its own layout inside the new frame. */
 .lm-window .ask-body {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.lm-window .ask-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.lm-ask-bar {
+  gap: 10px;
+}
+.lm-ask-bar h1 {
+  margin-left: 0;
+}
+.lm-ask-note {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--ink-4);
 }
 
 /* Dialogs and toasts use the new materials. */
@@ -1655,6 +1724,10 @@
 }
 .lm input[type="range"] {
   accent-color: var(--accent);
+}
+.lm .ask-box input:focus-visible,
+.lm .lm-search input:focus-visible {
+  outline: none;
 }
 .solid .lm-cap,
 .solid .lm-shelf {

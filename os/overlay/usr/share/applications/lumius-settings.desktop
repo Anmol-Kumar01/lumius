@@ -2,5 +2,5 @@
 Type=Application
 Name=Lumius Settings
 Exec=/usr/bin/lumius-settings
-Icon=preferences-system
+Icon=lumius-settings
 Categories=Settings;
