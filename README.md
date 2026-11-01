@@ -46,3 +46,5 @@ KDE desktop remains available; its context menu can add a standard Plasma panel.
 Test on a blank QEMU virtual disk first. Real USB writing overwrites the chosen USB; installing to a physical disk can erase the existing OS and files. No physical disk operations are performed by the build scripts. Hardware compatibility and Secure Boot are not guaranteed by a successful VM boot.
 
 See `docs/VALIDATION.md` for actual evidence and remaining checks; `THIRD_PARTY.md` for source/license distribution obligations. This project includes no Apple fonts, icons, logos or proprietary rendering code; glass effects approximate the requested visual direction.
+
+_Pipeline check: pushed from Claude Code on 2026-11-01._
